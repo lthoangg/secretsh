@@ -1,0 +1,52 @@
+name: Bug Report
+description: Report a bug in secretsh
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. secretsh init --master-key-env ...
+        2. echo "value" | secretsh set KEY ...
+        3. secretsh run ... -- "command"
+        4. Observe error
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: secretsh version
+      description: Output of `secretsh --version`
+      placeholder: "secretsh 0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Logs, screenshots, or anything else that might help.

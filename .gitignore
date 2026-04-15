@@ -1,0 +1,45 @@
+# Build
+/target
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Vault files (never commit secrets)
+*.vault
+*.vault.bin
+*.vault.lock
+*.vault.tmp.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+*.dylib
+.venv/
+.pytest_cache/
+
+# Coverage
+/coverage
+*.profraw
+*.profdata
+lcov.info
+tarpaulin-report.html
+htmlcov/
+.coverage
+.coverage.*
+
+# Fuzz
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts

@@ -1,0 +1,81 @@
+[package]
+name = "secretsh"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Secure subprocess secret injection for AI agents"
+license = "MIT"
+repository = "https://github.com/lthoangg/secretsh"
+homepage = "https://github.com/lthoangg/secretsh"
+documentation = "https://docs.rs/secretsh"
+readme = "README.md"
+keywords = ["security", "secrets", "vault", "subprocess", "redaction"]
+categories = ["command-line-utilities", "cryptography"]
+authors = ["Hoang Le <lthoangg@users.noreply.github.com>"]
+exclude = [
+    ".github/",
+    "docs/",
+    "fuzz/",
+    "target/",
+    "python/",
+    "tests/",
+    ".venv/",
+]
+
+[[bin]]
+name = "secretsh"
+path = "src/main.rs"
+
+[lib]
+name = "secretsh"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]
+
+[features]
+default = []
+python = ["pyo3/extension-module"]
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Crypto
+ring = "0.17"
+argon2 = "0.5"
+
+# Secret memory
+zeroize = { version = "1", features = ["derive"] }
+
+# Output redaction
+aho-corasick = "1"
+
+# Encoding for redaction patterns
+base64 = "0.22"
+percent-encoding = "2"
+hex = "0.4"
+
+# Serialization (audit logging)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Platform
+libc = "0.2"
+
+# Error handling
+thiserror = "2"
+
+# Python bindings (optional)
+pyo3 = { version = "0.25", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

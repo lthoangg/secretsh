@@ -1,0 +1,91 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-tap:
+    name: Update homebrew-tap formula
+    runs-on: macos-latest
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release binaries
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="lthoangg/secretsh"
+
+          curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/secretsh-aarch64-darwin.tar.gz" -o aarch64-darwin.tar.gz
+          curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/secretsh-x86_64-darwin.tar.gz" -o x86_64-darwin.tar.gz
+          curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/secretsh-aarch64-unknown-linux-gnu.tar.gz" -o aarch64-linux.tar.gz
+          curl -sL "https://github.com/${REPO}/releases/download/v${VERSION}/secretsh-x86_64-unknown-linux-gnu.tar.gz" -o x86_64-linux.tar.gz
+
+      - name: Compute SHA-256 hashes
+        id: hashes
+        run: |
+          echo "arm64_darwin=$(shasum -a 256 aarch64-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "intel_darwin=$(shasum -a 256 x86_64-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "arm64_linux=$(shasum -a 256 aarch64-linux.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "intel_linux=$(shasum -a 256 x86_64-linux.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: lthoangg/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="lthoangg/secretsh"
+          BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
+
+          cat > homebrew-tap/Formula/secretsh.rb <<FORMULA
+          class Secretsh < Formula
+            desc "Secure subprocess secret injection for AI agents"
+            homepage "https://github.com/lthoangg/secretsh"
+            version "${VERSION}"
+            license "MIT"
+
+            on_arm do
+              if OS.mac?
+                url "${BASE_URL}/secretsh-aarch64-darwin.tar.gz"
+                sha256 "${{ steps.hashes.outputs.arm64_darwin }}"
+              else
+                url "${BASE_URL}/secretsh-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.hashes.outputs.arm64_linux }}"
+              end
+            end
+
+            on_intel do
+              if OS.mac?
+                url "${BASE_URL}/secretsh-x86_64-darwin.tar.gz"
+                sha256 "${{ steps.hashes.outputs.intel_darwin }}"
+              else
+                url "${BASE_URL}/secretsh-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.hashes.outputs.intel_linux }}"
+              end
+            end
+
+            def install
+              bin.install "secretsh"
+            end
+
+            test do
+              assert_match "secretsh", shell_output("\#{bin}/secretsh --version")
+            end
+          end
+          FORMULA
+
+      - name: Commit and push
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/secretsh.rb
+          git commit -m "secretsh ${GITHUB_REF_NAME}"
+          git push

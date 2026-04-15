@@ -1,0 +1,44 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "secretsh"
+version = "0.1.0"
+description = "Secure subprocess secret injection for AI agents"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["security", "secrets", "vault", "subprocess", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Topic :: Security",
+    "Topic :: Security :: Cryptography",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/lthoangg/secretsh"
+Documentation = "https://github.com/lthoangg/secretsh#readme"
+Issues = "https://github.com/lthoangg/secretsh/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
+]
+
+[tool.maturin]
+features = ["python"]
+module-name = "secretsh._native"
+python-source = "python"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
