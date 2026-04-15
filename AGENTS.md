@@ -61,9 +61,9 @@ On open, verification order is: header HMAC → commit tag → per-entry GCM dec
 
 ```bash
 export SECRETSH_KEY="test-passphrase-12chars"
-./target/release/secretsh init --master-key-env SECRETSH_KEY --kdf-memory 65536
-echo -n "hunter2" | ./target/release/secretsh set MY_SECRET --master-key-env SECRETSH_KEY
-./target/release/secretsh run --master-key-env SECRETSH_KEY --quiet -- "echo {{MY_SECRET}}"
+./target/release/secretsh init --kdf-memory 65536
+printf 'hunter2' | ./target/release/secretsh set MY_SECRET
+./target/release/secretsh run --quiet -- "echo {{MY_SECRET}}"
 # Output: [REDACTED_MY_SECRET]
 ```
 

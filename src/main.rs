@@ -6,7 +6,8 @@
 use clap::Parser;
 
 use secretsh::cli::{
-    run_delete, run_export, run_import, run_init, run_list, run_run, run_set, Cli, Command,
+    run_delete, run_export, run_import, run_import_env, run_init, run_list, run_run, run_set, Cli,
+    Command,
 };
 use secretsh::harden::harden_process;
 
@@ -94,6 +95,15 @@ fn dispatch(cli: Cli) -> i32 {
 
         // ── import ────────────────────────────────────────────────────────────
         Command::Import(args) => match run_import(&args) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("secretsh error: {e}");
+                e.exit_code()
+            }
+        },
+
+        // ── import-env ───────────────────────────────────────────────────────
+        Command::ImportEnv(args) => match run_import_env(&args) {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("secretsh error: {e}");

@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod dotenv;
 pub mod error;
 pub mod harden;
 pub mod redact;

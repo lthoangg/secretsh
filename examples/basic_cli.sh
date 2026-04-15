@@ -33,34 +33,34 @@ echo
 # ── 1. Initialize ─────────────────────────────────────────────────────────────
 
 echo "--- init ---"
-secretsh init --master-key-env SECRETSH_KEY --vault "$VAULT" --kdf-memory 65536
+secretsh init --vault "$VAULT" --kdf-memory 65536
 echo
 
 # ── 2. Store secrets ──────────────────────────────────────────────────────────
 
 echo "--- set ---"
-echo -n "hunter2"           | secretsh set DB_PASS  --master-key-env SECRETSH_KEY --vault "$VAULT"
-echo -n "admin"             | secretsh set DB_USER  --master-key-env SECRETSH_KEY --vault "$VAULT"
-echo -n "sk-live-abc123xyz" | secretsh set API_KEY  --master-key-env SECRETSH_KEY --vault "$VAULT"
+printf 'hunter2'           | secretsh set DB_PASS  --vault "$VAULT"
+printf 'admin'             | secretsh set DB_USER  --vault "$VAULT"
+printf 'sk-live-abc123xyz' | secretsh set API_KEY  --vault "$VAULT"
 echo "Stored 3 secrets."
 echo
 
 # ── 3. List keys ──────────────────────────────────────────────────────────────
 
 echo "--- list ---"
-secretsh list --master-key-env SECRETSH_KEY --vault "$VAULT"
+secretsh list --vault "$VAULT"
 echo
 
 # ── 4. Run commands — secrets injected and redacted ───────────────────────────
 
 echo "--- run (placeholder injection) ---"
-secretsh run --master-key-env SECRETSH_KEY --vault "$VAULT" --quiet -- \
+secretsh run --vault "$VAULT" --quiet -- \
     "echo {{DB_USER}}:{{DB_PASS}}"
 # Output: [REDACTED_DB_USER]:[REDACTED_DB_PASS]
 echo
 
 echo "--- run (incidental secret in output is caught) ---"
-secretsh run --master-key-env SECRETSH_KEY --vault "$VAULT" --quiet -- \
+secretsh run --vault "$VAULT" --quiet -- \
     "echo 'the password is hunter2'"
 # Output: the password is [REDACTED_DB_PASS]
 echo
@@ -69,31 +69,31 @@ echo
 
 echo "--- export ---"
 BACKUP="$VAULT_DIR/backup.vault.bin"
-secretsh export --master-key-env SECRETSH_KEY --vault "$VAULT" --out "$BACKUP"
+secretsh export --vault "$VAULT" --out "$BACKUP"
 echo
 
 echo "--- delete a key ---"
-secretsh delete API_KEY --master-key-env SECRETSH_KEY --vault "$VAULT"
+secretsh delete API_KEY --vault "$VAULT"
 echo "Keys after delete:"
-secretsh list --master-key-env SECRETSH_KEY --vault "$VAULT"
+secretsh list --vault "$VAULT"
 echo
 
 echo "--- import (restores deleted key) ---"
-secretsh import --master-key-env SECRETSH_KEY --vault "$VAULT" --in "$BACKUP"
+secretsh import --vault "$VAULT" --in "$BACKUP"
 echo "Keys after import:"
-secretsh list --master-key-env SECRETSH_KEY --vault "$VAULT"
+secretsh list --vault "$VAULT"
 echo
 
 # ── 6. Exit codes ─────────────────────────────────────────────────────────────
 
 echo "--- exit codes ---"
-secretsh run --master-key-env SECRETSH_KEY --vault "$VAULT" --quiet -- "true"
+secretsh run --vault "$VAULT" --quiet -- "true"
 echo "true  -> exit $?"
 
-secretsh run --master-key-env SECRETSH_KEY --vault "$VAULT" --quiet -- "false" || true
+secretsh run --vault "$VAULT" --quiet -- "false" || true
 echo "false -> exit 1 (expected)"
 
-secretsh run --master-key-env SECRETSH_KEY --vault "$VAULT" --quiet -- "nonexistent_cmd_xyz" 2>/dev/null || true
+secretsh run --vault "$VAULT" --quiet -- "nonexistent_cmd_xyz" 2>/dev/null || true
 echo "not found -> exit 127 (expected)"
 echo
 

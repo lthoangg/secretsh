@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-04-15
+
+### Added
+
+- **`import-env` command:** Import secrets from a `.env` file (`secretsh import-env -f .env`). Supports comments, blank lines, `export` prefix, double-quoted and single-quoted values, inline comments, and escape sequences.
+- **`--master-key-env` defaults to `SECRETSH_KEY`:** All commands now work without `--master-key-env` if the `SECRETSH_KEY` environment variable is set. Use `--master-key-env OTHER_VAR` to override.
+
+### Changed
+
+- **README:** Rewrote Quick Start with clearer step-by-step instructions. Replaced `echo -n "secret"` anti-pattern with secure alternatives (interactive stdin, file redirection, `import-env`).
+- **docs/cli.md:** Simplified all examples to use the default env var. Added full `import-env` reference section.
+- **examples/basic_cli.sh:** Updated to use default `SECRETSH_KEY` and `printf` instead of `echo -n`.
+- **AGENTS.md:** Simplified E2E smoke test.
+
 ## [0.1.1] - 2026-04-15
 
 ### Added
@@ -55,6 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vault file permissions enforced at 0600 (hard error if group/world-readable).
 - Exit codes follow GNU coreutils conventions.
 
-[Unreleased]: https://github.com/lthoangg/secretsh/compare/v0.1.1...HEAD
+[0.1.2]: https://github.com/lthoangg/secretsh/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/lthoangg/secretsh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lthoangg/secretsh/releases/tag/v0.1.0
