@@ -61,26 +61,50 @@ Download from [GitHub Releases](https://github.com/lthoangg/secretsh/releases) f
 
 ## Quick Start
 
+### 1. Set your master passphrase
+
+This prompt is silent -- type your passphrase and press Enter. Nothing is saved to shell history.
+
 ```bash
-# 1. Set your master passphrase in an env var (never on the command line)
-export SECRETSH_KEY="your-master-passphrase-here"
-
-# 2. Create an encrypted vault
-secretsh init --master-key-env SECRETSH_KEY
-
-# 3. Store secrets (value read from stdin, never in shell history)
-echo -n "hunter2" | secretsh set API_PASS --master-key-env SECRETSH_KEY
-echo -n "admin"   | secretsh set API_USER --master-key-env SECRETSH_KEY
-
-# 4. Run commands with placeholders
-secretsh run --master-key-env SECRETSH_KEY -- \
-    "curl -u {{API_USER}}:{{API_PASS}} https://httpbin.org/basic-auth/admin/hunter2"
-
-# 5. List stored keys (values are never displayed)
-secretsh list --master-key-env SECRETSH_KEY
+read -rs SECRETSH_KEY && export SECRETSH_KEY
 ```
 
-The `run` output is guaranteed scrubbed: any occurrence of a vault secret (raw, base64, URL-encoded, or hex-encoded) is replaced with `[REDACTED_<KEY>]`.
+All commands default to reading the passphrase from `SECRETSH_KEY`. Use `--master-key-env OTHER_VAR` to override.
+
+### 2. Create a vault and add secrets
+
+```bash
+secretsh init
+```
+
+**Easiest: import from an existing `.env` file:**
+
+```bash
+secretsh import-env -f .env
+```
+
+**Or add secrets one at a time** (type the value, then press Ctrl+D on a new line to finish):
+
+```bash
+secretsh set API_PASS
+secretsh set API_USER
+```
+
+### 3. Run commands with `{{placeholders}}`
+
+```bash
+secretsh run -- "curl -u {{API_USER}}:{{API_PASS}} https://httpbin.org/basic-auth/admin/hunter2"
+```
+
+The output is always scrubbed -- any vault secret (raw, base64, URL-encoded, or hex) is replaced with `[REDACTED_<KEY>]`.
+
+### 4. See what's stored
+
+```bash
+secretsh list
+```
+
+Values are never displayed.
 
 ---
 
@@ -95,8 +119,9 @@ The `run` output is guaranteed scrubbed: any occurrence of a vault secret (raw, 
 | `secretsh run -- "cmd"` | Execute a command with secret injection + output redaction |
 | `secretsh export --out <path>` | Export vault to an encrypted backup |
 | `secretsh import --in <path>` | Import entries from a backup |
+| `secretsh import-env -f <path>` | Import secrets from a `.env` file |
 
-All commands require `--master-key-env <ENV_VAR>` to specify which environment variable holds the passphrase. The passphrase itself is never passed on the command line.
+All commands read the passphrase from the `SECRETSH_KEY` environment variable by default. Use `--master-key-env <ENV_VAR>` to read from a different variable. The passphrase itself is never passed on the command line.
 
 ---
 
@@ -187,13 +212,13 @@ Override with `--vault <path>` on any command.
 Every command accepts `--vault`, so you can maintain separate vaults for different contexts:
 
 ```bash
-# Work secrets
+# Work vault
 secretsh init --vault ~/.secretsh/work.vault --master-key-env WORK_KEY
-echo -n "prod-token" | secretsh set API_TOKEN --vault ~/.secretsh/work.vault --master-key-env WORK_KEY
+secretsh import-env -f .env.work --vault ~/.secretsh/work.vault --master-key-env WORK_KEY
 
-# Personal secrets
+# Personal vault
 secretsh init --vault ~/.secretsh/personal.vault --master-key-env PERSONAL_KEY
-echo -n "my-pass" | secretsh set SSH_PASS --vault ~/.secretsh/personal.vault --master-key-env PERSONAL_KEY
+secretsh import-env -f .env.personal --vault ~/.secretsh/personal.vault --master-key-env PERSONAL_KEY
 
 # Run from either
 secretsh run --vault ~/.secretsh/work.vault --master-key-env WORK_KEY -- \
@@ -291,7 +316,7 @@ See [`examples/`](examples/) for runnable examples:
 | [`multi_vault.py`](examples/multi_vault.py) | Multiple vaults with different passphrases for staging vs production |
 
 ```bash
-export SECRETSH_KEY="your-master-passphrase-here"
+read -rs SECRETSH_KEY && export SECRETSH_KEY
 bash examples/basic_cli.sh
 python examples/basic_python.py
 ```

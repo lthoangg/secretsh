@@ -14,6 +14,7 @@ use ring::digest::{digest, SHA256};
 use serde_json::json;
 use zeroize::Zeroizing;
 
+use crate::dotenv::parse_dotenv;
 use crate::error::SecretshError;
 use crate::redact::Redactor;
 use crate::spawn::{spawn_child, SpawnConfig};
@@ -105,8 +106,9 @@ pub struct VaultArgs {
     #[arg(long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Name of the environment variable that holds the master passphrase.
-    #[arg(long, value_name = "ENV_VAR")]
+    /// Name of the environment variable that holds the master passphrase
+    /// (defaults to SECRETSH_KEY).
+    #[arg(long, value_name = "ENV_VAR", default_value = "SECRETSH_KEY")]
     pub master_key_env: String,
 }
 
@@ -167,6 +169,9 @@ pub enum Command {
 
     /// Import secrets from an encrypted export file.
     Import(ImportArgs),
+
+    /// Import secrets from a .env file.
+    ImportEnv(ImportEnvArgs),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,8 +185,9 @@ pub struct InitArgs {
     #[arg(long, value_name = "PATH")]
     pub vault: Option<PathBuf>,
 
-    /// Name of the environment variable that holds the master passphrase.
-    #[arg(long, value_name = "ENV_VAR")]
+    /// Name of the environment variable that holds the master passphrase
+    /// (defaults to SECRETSH_KEY).
+    #[arg(long, value_name = "ENV_VAR", default_value = "SECRETSH_KEY")]
     pub master_key_env: String,
 
     /// Argon2id memory cost in KiB (minimum 65536, default 131072 = 128 MiB).
@@ -321,6 +327,25 @@ pub struct ImportArgs {
     /// Name of the environment variable holding the import file's passphrase.
     #[arg(long, value_name = "ENV_VAR")]
     pub import_key_env: Option<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// import-env
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Arguments for `secretsh import-env`.
+#[derive(Args, Debug)]
+pub struct ImportEnvArgs {
+    #[command(flatten)]
+    pub vault: VaultArgs,
+
+    /// Path to the .env file to import.
+    #[arg(long = "file", short = 'f', value_name = "PATH", required = true)]
+    pub file: PathBuf,
+
+    /// Replace existing entries with imported values.
+    #[arg(long)]
+    pub overwrite: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -635,6 +660,72 @@ pub fn run_import(args: &ImportArgs) -> Result<(), SecretshError> {
         skipped,
         replaced,
         args.input.display()
+    );
+    Ok(())
+}
+
+// ── import-env ───────────────────────────────────────────────────────────────
+
+/// Handle `secretsh import-env`.
+///
+/// Parses a `.env` file and stores each key-value pair in the vault.
+/// Existing entries are skipped unless `--overwrite` is given.
+pub fn run_import_env(args: &ImportEnvArgs) -> Result<(), SecretshError> {
+    let config = args.vault.to_vault_config();
+    let mut vault = Vault::open(&config)?;
+
+    let entries = parse_dotenv(&args.file)?;
+
+    if entries.is_empty() {
+        eprintln!("secretsh: no entries found in {}", args.file.display());
+        return Ok(());
+    }
+
+    let existing_keys: std::collections::HashSet<String> = vault.list_keys().into_iter().collect();
+
+    let mut added: usize = 0;
+    let mut skipped: usize = 0;
+    let mut replaced: usize = 0;
+
+    for entry in &entries {
+        let exists = existing_keys.contains(&entry.key);
+
+        if exists && !args.overwrite {
+            eprintln!(
+                "secretsh: skipping {:?} (already exists, use --overwrite)",
+                entry.key
+            );
+            skipped += 1;
+            continue;
+        }
+
+        vault.set(&entry.key, &entry.value)?;
+
+        if exists {
+            replaced += 1;
+        } else {
+            added += 1;
+        }
+    }
+
+    let key_count = vault.list_keys().len();
+    emit_audit(
+        "import-env",
+        key_count,
+        &json!({
+            "added": added,
+            "skipped": skipped,
+            "replaced": replaced,
+            "source": args.file.display().to_string(),
+        }),
+    );
+
+    eprintln!(
+        "secretsh: imported {} entries ({} skipped, {} replaced) from {}",
+        added,
+        skipped,
+        replaced,
+        args.file.display()
     );
     Ok(())
 }

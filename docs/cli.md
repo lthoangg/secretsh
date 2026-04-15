@@ -1,6 +1,6 @@
 # CLI Reference
 
-All commands require `--master-key-env <ENV_VAR>` to specify which environment variable holds the passphrase. The passphrase itself is never passed on the command line.
+All commands read the master passphrase from the `SECRETSH_KEY` environment variable by default. Use `--master-key-env <ENV_VAR>` to read from a different variable. The passphrase itself is never passed on the command line.
 
 ## Commands
 
@@ -9,14 +9,14 @@ All commands require `--master-key-env <ENV_VAR>` to specify which environment v
 Create a new encrypted vault.
 
 ```bash
-secretsh init --master-key-env SECRETSH_KEY
-secretsh init --master-key-env SECRETSH_KEY --kdf-memory 65536
-secretsh init --master-key-env SECRETSH_KEY --no-passphrase-check
+secretsh init
+secretsh init --kdf-memory 65536
+secretsh init --no-passphrase-check
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--master-key-env` | Env var holding the passphrase |
+| `--master-key-env` | Env var holding the passphrase (default: `SECRETSH_KEY`) |
 | `--vault` | Custom vault path (default: platform-specific) |
 | `--kdf-memory` | Argon2id memory cost in KiB (default: 131072 / 128 MiB, minimum: 65536 / 64 MiB) |
 | `--no-passphrase-check` | Skip minimum-length validation (12 chars) |
@@ -28,8 +28,11 @@ Exits with error if vault already exists at the target path.
 Store a secret. Value read from **stdin** (never on the command line).
 
 ```bash
-echo -n "hunter2" | secretsh set API_PASS --master-key-env SECRETSH_KEY
-printf '%s' "$(<key.pem)" | secretsh set TLS_KEY --master-key-env SECRETSH_KEY
+# Type the value interactively, then press Ctrl+D
+secretsh set API_PASS
+
+# Or pipe from a file (e.g. a PEM key)
+secretsh set TLS_KEY < key.pem
 ```
 
 - Reads until EOF (supports multi-line values like PEM keys)
@@ -42,7 +45,7 @@ printf '%s' "$(<key.pem)" | secretsh set TLS_KEY --master-key-env SECRETSH_KEY
 Remove a secret from the vault.
 
 ```bash
-secretsh delete API_PASS --master-key-env SECRETSH_KEY
+secretsh delete API_PASS
 ```
 
 ### `secretsh list`
@@ -50,7 +53,7 @@ secretsh delete API_PASS --master-key-env SECRETSH_KEY
 List key names (values are never displayed).
 
 ```bash
-secretsh list --master-key-env SECRETSH_KEY
+secretsh list
 ```
 
 ### `secretsh run -- "command"`
@@ -58,14 +61,11 @@ secretsh list --master-key-env SECRETSH_KEY
 Execute a command with secret injection and output redaction.
 
 ```bash
-secretsh run --master-key-env SECRETSH_KEY -- \
-    "curl -u {{USER}}:{{PASS}} https://example.com/api"
+secretsh run -- "curl -u {{USER}}:{{PASS}} https://example.com/api"
 
-secretsh run --master-key-env SECRETSH_KEY --timeout 60 -- \
-    "curl -u admin:{{API_PASS}} https://internal/status"
+secretsh run --timeout 60 -- "curl -u admin:{{API_PASS}} https://internal/status"
 
-secretsh run --master-key-env SECRETSH_KEY --quiet -- \
-    "echo {{SECRET}}"
+secretsh run --quiet -- "echo {{SECRET}}"
 ```
 
 | Flag | Description | Default |
@@ -80,7 +80,7 @@ secretsh run --master-key-env SECRETSH_KEY --quiet -- \
 Export vault to an encrypted backup file.
 
 ```bash
-secretsh export --master-key-env SECRETSH_KEY --out backup.vault.bin
+secretsh export --out backup.vault.bin
 ```
 
 The export is a complete vault file re-encrypted with a fresh salt and nonces.
@@ -90,15 +90,41 @@ The export is a complete vault file re-encrypted with a fresh salt and nonces.
 Import entries from an exported vault.
 
 ```bash
-secretsh import --master-key-env SECRETSH_KEY --in backup.vault.bin
-secretsh import --master-key-env SECRETSH_KEY --in backup.vault.bin --overwrite
-secretsh import --master-key-env SECRETSH_KEY --in backup.vault.bin --import-key-env BACKUP_KEY
+secretsh import --in backup.vault.bin
+secretsh import --in backup.vault.bin --overwrite
+secretsh import --in backup.vault.bin --import-key-env BACKUP_KEY
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--overwrite` | Replace existing entries with imported values |
 | `--import-key-env` | Env var for the import file's passphrase (if different) |
+
+Reports: `N added, N skipped, N replaced`.
+
+### `secretsh import-env -f <PATH>`
+
+Import secrets from a `.env` file into the vault.
+
+```bash
+secretsh import-env -f .env
+secretsh import-env -f .env --overwrite
+```
+
+| Flag | Description |
+|------|-------------|
+| `-f`, `--file` | Path to the `.env` file |
+| `--overwrite` | Replace existing entries with imported values |
+
+Supported `.env` syntax:
+
+- `KEY=value` -- simple key-value
+- `export KEY=value` -- optional `export` prefix (stripped)
+- `KEY="value with spaces"` -- double-quoted (supports `\"`, `\\`, `\n`, `\t`, `\r` escapes)
+- `KEY='literal value'` -- single-quoted (no escape processing)
+- `# comment` -- comment lines (ignored)
+- `KEY=value # comment` -- inline comments (stripped from unquoted values)
+- Blank lines are ignored
 
 Reports: `N added, N skipped, N replaced`.
 
@@ -120,7 +146,7 @@ Override with `--vault <path>` on any command.
 | Code | Meaning |
 |------|---------|
 | 0 | Success (child exited 0) |
-| 1–125 | Child process exit code (passthrough) |
+| 1-125 | Child process exit code (passthrough) |
 | 124 | Timeout or output limit exceeded (child killed) |
 | 125 | secretsh internal error (vault, placeholder, tokenization, spawn failure) |
 | 126 | Command found but not executable |
@@ -131,5 +157,5 @@ These follow GNU coreutils conventions (`timeout`, `env`).
 
 ## Security Notes
 
-- Set the master passphrase env var in your shell profile or process supervisor — **never** inline on the command line (`SECRETSH_KEY=pass secretsh run ...` is recorded in shell history).
+- Set the master passphrase env var in your shell session -- **never** inline on the command line (`SECRETSH_KEY=pass secretsh run ...` is recorded in shell history). Use `read -rs SECRETSH_KEY && export SECRETSH_KEY` instead.
 - All audit entries are emitted to stderr as JSON Lines. Key names are never logged.

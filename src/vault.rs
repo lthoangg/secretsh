@@ -890,7 +890,6 @@ impl Vault {
     }
 
     // ── import ────────────────────────────────────────────────────────────────
-
     /// Import entries from an encrypted vault file at `import_path`.
     ///
     /// - If `import_key_env` is `Some`, it specifies the env var name for the
