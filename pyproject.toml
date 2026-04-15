@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "secretsh"
-version = "0.1.4"
+version = "0.1.5"
 description = "Secure subprocess secret injection for AI agents"
 readme = "README.md"
 license = { text = "MIT" }
