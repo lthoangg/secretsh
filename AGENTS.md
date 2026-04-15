@@ -67,6 +67,32 @@ echo -n "hunter2" | ./target/release/secretsh set MY_SECRET --master-key-env SEC
 # Output: [REDACTED_MY_SECRET]
 ```
 
+## Releasing a new version
+
+Update the version in **all three files** before tagging:
+
+| File | Field | Example |
+|------|-------|---------|
+| `Cargo.toml` | `version = "X.Y.Z"` | `version = "0.1.1"` |
+| `pyproject.toml` | `version = "X.Y.Z"` | `version = "0.1.1"` |
+| `CHANGELOG.md` | Add `## [X.Y.Z] - YYYY-MM-DD` section, update footer links | Move `[Unreleased]` items into new section |
+
+After updating, regenerate `Cargo.lock`:
+
+```bash
+cargo generate-lockfile
+```
+
+Commit all four files (`Cargo.toml`, `pyproject.toml`, `CHANGELOG.md`, `Cargo.lock`), merge to main, then tag and release:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+gh release create vX.Y.Z --title "vX.Y.Z" --generate-notes
+```
+
+This triggers: `release-binaries` (4 platform tarballs) → `publish-homebrew` (waits for binaries) + `publish-crates` + `publish-pypi`.
+
 ## Python bindings
 
 PyO3 + maturin. See [docs/python-api.md](docs/python-api.md) for full API reference.
