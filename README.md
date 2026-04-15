@@ -30,6 +30,13 @@ secretsh fixes all three: secrets live in an encrypted vault, enter the process 
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew tap lthoangg/tap
+brew install secretsh
+```
+
 ### From source
 
 ```bash
@@ -46,8 +53,8 @@ Download from [GitHub Releases](https://github.com/lthoangg/secretsh/releases) f
 
 ### Requirements
 
-- Rust 1.75+ (build from source)
 - macOS 10.15+ or Linux (glibc)
+- Rust 1.75+ (build from source only)
 
 ---
 
