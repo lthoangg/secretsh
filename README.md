@@ -7,124 +7,79 @@
 [![PyPI](https://img.shields.io/pypi/v/secretsh.svg)](https://pypi.org/project/secretsh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Status: beta.** Core functionality is stable and tested, but the security model has known limitations — read the [Security Model](#security-model) section before using in production.
+> **Beta.** Core functionality is stable and tested. Read [What it does NOT](#what-it-does-and-does-not) before deploying in sensitive environments.
 
-secretsh keeps credentials out of LLM context, shell history, and command output. AI agents write commands with `{{PLACEHOLDER}}` tokens; secretsh resolves them against an encrypted vault and redacts any secrets that leak back through stdout/stderr.
+AI agents write commands with `{{PLACEHOLDER}}` tokens. secretsh resolves them from an encrypted vault at exec time and scrubs any secrets that leak back through output.
 
 ```
-Agent prompt:  curl -u admin:{{API_PASS}} https://internal/api
-Child argv:    curl -u admin:hunter2 https://internal/api
+Agent writes:  curl -u admin:{{API_PASS}} https://internal/api
+Child runs:    curl -u admin:hunter2 https://internal/api
 Agent sees:    curl -u admin:[REDACTED_API_PASS] https://internal/api
 ```
 
-> **AI-agent deployments:** use `--no-shell` to block shell interpreters and close the conditional-probe oracle. See [Security Model](#security-model) for known limitations.
-
 ---
 
-## Why
+## What it does and does NOT
 
-When an AI agent runs `curl -u admin:hunter2 ...`, three things go wrong:
+### Does
 
-1. **The LLM knows the secret** and can be tricked into leaking it.
-2. **Shell history records it** in `~/.bash_history`.
-3. **Command output may echo it** back (`curl -v`, misconfigured services), and the LLM ingests it.
+| | |
+|--|--|
+| **Keeps secrets out of LLM context** | Agent only ever sees `{{PLACEHOLDER}}`, never the value |
+| **Keeps secrets out of shell history** | secretsh reads from an encrypted vault, not the command line |
+| **Keeps secrets out of spawn errors** | `command not found: "[REDACTED]"` — never the raw value |
+| **Scrubs output (best effort)** | Aho-Corasick substring redaction on stdout/stderr — raw, base64, URL-encoded, hex |
+| **Blocks shell oracle attacks** | `--no-shell` rejects `sh`/`bash`/`zsh`/etc. before any child runs |
+| **Encrypts at rest** | AES-256-GCM + Argon2id + HKDF — key names and values both encrypted |
 
-secretsh fixes (1) and (2) unconditionally. For (3) it provides best-effort redaction — see [Security Model](#security-model) for what that means in practice.
+### Does NOT
+
+| | |
+|--|--|
+| **Stop prompt injection** | If the agent is tricked into running a malicious command, secretsh executes it |
+| **Stop a child reading its own argv** | Secret is in the process's argv for its lifetime — visible in `/proc/<pid>/cmdline` |
+| **Handle common-value false positives** | If your secret is `123456`, every `123456` in output is redacted — including unrelated content |
+| **Fully close the redaction oracle** | `echo {{KEY}}==guess` leaks one bit per probe — if `==guess` is also redacted, the guess matched |
+| **Replace a secrets manager** | No access control, no audit trail beyond local stderr JSON, no rotation |
+| **Protect against a compromised passphrase** | If `SECRETSH_KEY` is stolen, the vault is open |
+
+> **In short:** secretsh gives your AI agent the ability to use credentials without the credentials appearing in its context, history, or output — it does not stop a sufficiently adversarial agent from probing or exfiltrating. Use `--no-shell` to raise the bar.
 
 ---
 
 ## Install
 
-### Homebrew (macOS / Linux)
-
 ```bash
-brew tap lthoangg/tap
-brew install secretsh
-```
+# Homebrew
+brew tap lthoangg/tap && brew install secretsh
 
-### PyPI
-
-```bash
+# PyPI
 uv add secretsh
-# or
-pip install secretsh
-```
 
-### From source
-
-```bash
+# From source
 cargo install secretsh
 ```
 
-### Pre-built binaries
-
-Download from [GitHub Releases](https://github.com/lthoangg/secretsh/releases) for:
-- `x86_64-apple-darwin`
-- `aarch64-apple-darwin`
-- `x86_64-unknown-linux-gnu`
-- `aarch64-unknown-linux-gnu`
-
-### Requirements
-
-- macOS 10.15+ or Linux (glibc)
-- Rust 1.75+ (build from source only)
+Pre-built binaries for `x86_64`/`aarch64` on macOS and Linux: [GitHub Releases](https://github.com/lthoangg/secretsh/releases).
 
 ---
 
 ## Quick Start
 
-### 1. Set your master passphrase
-
-This prompt is silent -- type your passphrase and press Enter. Nothing is saved to shell history.
-
 ```bash
+# 1. Set passphrase (silent, not saved to history)
 read -rs SECRETSH_KEY && export SECRETSH_KEY
-```
 
-All commands default to reading the passphrase from `SECRETSH_KEY`. Use `--master-key-env OTHER_VAR` to override.
-
-### 2. Create a vault and add secrets
-
-```bash
+# 2. Create vault and import secrets
 secretsh init
-```
-
-**Easiest: import from an existing `.env` file:**
-
-```bash
 secretsh import-env -f .env
-```
 
-**Or add secrets one at a time** (input is hidden, press Enter to submit):
-
-```bash
-secretsh set API_PASS
-# Enter secret for API_PASS: ********
-secretsh set API_USER
-# Enter secret for API_USER: ********
-```
-
-### 3. Run commands with `{{placeholders}}`
-
-```bash
-secretsh run -- "curl -u {{API_USER}}:{{API_PASS}} https://httpbin.org/basic-auth/admin/hunter2"
-```
-
-Output is scrubbed — any vault secret (raw, base64, URL-encoded, or hex) is replaced with `[REDACTED_<KEY>]`.
-
-**For AI-agent contexts, add `--no-shell`** to prevent the agent from using shell interpreters to probe secret values:
-
-```bash
+# 3. Run commands — secrets injected and scrubbed
 secretsh run --no-shell -- curl -u "{{API_USER}}:{{API_PASS}}" https://api.example.com
-```
 
-### 4. See what's stored
-
-```bash
+# 4. List what's stored (values never shown)
 secretsh list
 ```
-
-Values are never displayed.
 
 ---
 
@@ -136,140 +91,48 @@ Values are never displayed.
 | `secretsh set <KEY>` | Store a secret (interactive hidden input) |
 | `secretsh delete <KEY>` | Remove a secret |
 | `secretsh list` | List key names (never values) |
-| `secretsh run -- "cmd"` | Execute a command with secret injection + output redaction |
-| `secretsh export --out <path>` | Export vault to an encrypted backup |
+| `secretsh run -- <cmd>` | Execute with secret injection + output redaction |
+| `secretsh export --out <path>` | Export vault to encrypted backup |
 | `secretsh import --in <path>` | Import entries from a backup |
-| `secretsh import-env -f <path>` | Import secrets from a `.env` file |
+| `secretsh import-env -f <path>` | Bulk import from a `.env` file |
 
-All commands read the passphrase from the `SECRETSH_KEY` environment variable by default. Use `--master-key-env <ENV_VAR>` to read from a different variable. The passphrase itself is never passed on the command line.
+All commands read the passphrase from `SECRETSH_KEY` by default. Use `--master-key-env <VAR>` to override.
 
----
-
-## Security Model
-
-### What secretsh protects against
-
-- Secret leakage into LLM prompt/context (placeholder model — agent never sees values)
-- Secret leakage via shell history (value never on command line)
-- Secret leakage via spawn error messages (argv[0] passed through redactor before appearing in errors)
-- Secret leakage via stdout/stderr — **best effort**: Aho-Corasick substring redaction covering raw, base64, URL-encoded, and hex forms
-- Shell conditional oracle when `--no-shell` is set (shell interpreters rejected before any child runs)
-- Vault tampering (HMAC-authenticated header + per-entry AES-256-GCM with positional AAD + full-file commit tag)
-- Metadata leakage from vault file (key names are encrypted)
-- Core dump inclusion (`RLIMIT_CORE=0`)
-
-### Known limitations
-
-**Redaction is substring matching.** If your secret value is a common string (`123456`, `true`, `yes`, `development`), every occurrence of that string in child output will be redacted — including unrelated log lines, port numbers, or status text. There is no fix for this within a substring-matching model.
-
-**The redaction side-channel oracle is not fully closed.** An AI agent can run `echo {{KEY}}==guess` and observe whether `==guess` is also redacted in the output. If it is, the guess matched the secret. This leaks one bit per probe and cannot be eliminated without breaking legitimate mixed-token uses like `curl -H "Authorization: {{TOKEN}}"`.
-
-**`--no-shell` closes the shell conditional oracle** but only when set by the operator. Without it, an agent can run `sh -c '[ "{{KEY}}" = guess ] && echo yes'` to probe the secret with no redaction at all.
-
-**`--vault` must appear before `--`.** Anything after `--` is captured as the command; `secretsh run -- cmd --vault path` silently uses the default vault.
-
-### What is explicitly out of scope
-
-- `/proc/<pid>/cmdline` inspection (secret is in child argv for its lifetime)
-- Physical memory attacks (cold boot, kernel exploits)
-- A child process reading its own argv and exfiltrating it
-- Compromise of the master passphrase itself
-- Secrets encoded in forms beyond raw, base64, URL-encoded, and hex
-
-See [docs/threat-model.md](docs/threat-model.md) for the complete threat model.
-
-### Cryptographic Primitives
-
-| Component | Algorithm | Library |
-|-----------|-----------|---------|
-| Encryption | AES-256-GCM | `ring` |
-| MAC | HMAC-SHA256 | `ring` |
-| KDF | Argon2id (128 MiB, t=3, p=4) | `argon2` |
-| Key expansion | HKDF-SHA256 | `ring` |
-| Random | OS CSPRNG | `ring::rand::SystemRandom` |
-
-Key derivation uses HKDF domain separation: the Argon2id output is never used directly. Independent subkeys are derived for encryption (`secretsh-enc-v1`) and HMAC (`secretsh-mac-v1`).
-
----
-
-## Architecture
-
-```
-                    +------------------+
-  Agent writes:     | curl {{API_KEY}} |   (placeholder — LLM never sees the value)
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    |    Tokenizer     |   Strict POSIX-subset parser
-                    | (rejects pipes,  |   No shell intermediary
-                    |  globs, $(), ;)  |
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    |  Vault Decrypt   |   AES-256-GCM + Argon2id
-                    |  + Placeholder   |   Resolve {{KEY}} -> value
-                    |    Resolution    |
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    |  posix_spawnp()  |   Direct exec, no sh -c
-                    |  (macOS)         |   argv zeroized after spawn
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    |  Aho-Corasick    |   O(n) streaming redaction
-                    |  Output Filter   |   Raw + base64 + URL + hex
-                    +--------+---------+
-                             |
-                    +--------v---------+
-  Agent receives:   | [REDACTED_KEY]   |   Scrubbed output
-                    +------------------+
-```
-
----
-
-## Configuration
-
-### Vault Location
-
-| Platform | Default path |
-|----------|-------------|
-| macOS | `~/Library/Application Support/secretsh/vault.bin` |
-| Linux | `$XDG_DATA_HOME/secretsh/vault.bin` |
-
-Override with `--vault <path>` on any command.
-
-### Multiple Vaults
-
-Every command accepts `--vault`, so you can maintain separate vaults for different contexts:
-
-```bash
-# Work vault
-secretsh init --vault ~/.secretsh/work.vault --master-key-env WORK_KEY
-secretsh import-env -f .env.work --vault ~/.secretsh/work.vault --master-key-env WORK_KEY
-
-# Personal vault
-secretsh init --vault ~/.secretsh/personal.vault --master-key-env PERSONAL_KEY
-secretsh import-env -f .env.personal --vault ~/.secretsh/personal.vault --master-key-env PERSONAL_KEY
-
-# Run from either
-secretsh run --vault ~/.secretsh/work.vault --master-key-env WORK_KEY -- \
-    "curl -H 'Token: {{API_TOKEN}}' https://api.example.com"
-```
-
-Each vault is independent: different passphrase, different salt, different entries.
-
-### `run` Flags
+### Key `run` flags
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--no-shell` | off | Reject shell interpreters (`sh`, `bash`, `zsh`, `dash`, `fish`, `ksh`, `tcsh`, …) as argv[0]. **Recommended for AI-agent deployments.** |
+| `--no-shell` | off | Block `sh`/`bash`/`zsh`/`dash`/`fish`/`ksh`/`tcsh`/`csh` as argv[0]. **Recommended for AI agents.** |
 | `--timeout` | 300s | Kill child after N seconds |
 | `--max-output` | 50 MiB | Kill child if stdout exceeds this |
-| `--max-stderr` | 1 MiB | Kill child if stderr exceeds this |
 | `--quiet` | off | Suppress audit JSON on stderr |
 
-Timeout and output-limit kills use SIGTERM + SIGKILL escalation (exit code 124). Shell delegation blocked by `--no-shell` exits with code 125.
+---
+
+## Python API
+
+```python
+import secretsh
+
+with secretsh.Vault(master_key_env="SECRETSH_KEY") as vault:
+    result = vault.run("curl -H 'Authorization: Bearer {{API_KEY}}' https://api.example.com")
+    print(result.stdout)     # Bearer [REDACTED_API_KEY]
+    print(result.exit_code)  # 0
+```
+
+See [docs/python-api.md](docs/python-api.md) for the full API reference.
+
+---
+
+## Documentation
+
+| Doc | Content |
+|-----|---------|
+| [docs/cli.md](docs/cli.md) | All flags, exit codes, vault location |
+| [docs/threat-model.md](docs/threat-model.md) | Full security model, oracle attacks, known limitations |
+| [docs/architecture.md](docs/architecture.md) | Execution pipeline, crypto, memory hardening |
+| [docs/testing.md](docs/testing.md) | Test inventory, known gaps |
+| [examples/](examples/) | Runnable CLI and Python examples |
 
 ---
 
@@ -278,59 +141,21 @@ Timeout and output-limit kills use SIGTERM + SIGKILL escalation (exit code 124).
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1-125 | Child process exit code (passthrough) |
+| 1–125 | Child exit code (passthrough) |
 | 124 | Timeout or output limit exceeded |
-| 125 | secretsh internal error |
+| 125 | secretsh error (vault, tokenization, shell blocked) |
 | 126 | Command not executable |
 | 127 | Command not found |
 | 128+N | Child killed by signal N |
 
 ---
 
-## Python API
-
-secretsh provides native Python bindings via PyO3. Secrets stay on the Rust heap and never cross the FFI boundary as Python `str`.
-
-```python
-import secretsh
-
-with secretsh.Vault(master_key_env="SECRETSH_KEY") as vault:
-    vault.set("API_KEY", bytearray(b"sk-live-abc123"))  # bytearray is zeroed after copy
-    result = vault.run("curl -H 'Authorization: Bearer {{API_KEY}}' https://api.example.com")
-    print(result.stdout)     # -> "... Authorization: Bearer [REDACTED_API_KEY] ..."
-    print(result.exit_code)  # -> 0
-```
-
-### Install from source
-
-```bash
-uv venv .venv && source .venv/bin/activate
-uv sync --group dev                       # install dev deps (pytest, pytest-cov)
-maturin develop --features python          # build + install into venv
-python -m pytest tests/ -v                 # run tests
-```
-
-Requires Python 3.10+.
-
----
-
 ## Development
 
 ```bash
-# Build
-cargo build
-
-# Run all tests (233: 220 unit + 13 integration)
-cargo test
-
-# Lint
-cargo clippy -- -D warnings
-
-# Format
-cargo fmt
-
-# Build release
-cargo build --release
+cargo test                    # 233 tests (220 unit + 13 integration)
+cargo clippy -- -D warnings   # must be zero warnings
+cargo fmt --check
 
 # Python bindings
 maturin develop --features python
@@ -339,34 +164,6 @@ python -m pytest tests/ -v
 
 ---
 
-## Examples
-
-See [`examples/`](examples/) for runnable examples:
-
-| File | What it demonstrates |
-|------|---------------------|
-| [`basic_cli.sh`](examples/basic_cli.sh) | Full CLI walkthrough: init, set, list, run, export, import, delete, exit codes |
-| [`basic_python.py`](examples/basic_python.py) | Python API: set, run, redaction, bytearray zeroing, timeout, error handling, export/import |
-| [`multi_vault.py`](examples/multi_vault.py) | Multiple vaults with different passphrases for staging vs production |
-
-```bash
-read -rs SECRETSH_KEY && export SECRETSH_KEY
-bash examples/basic_cli.sh
-python examples/basic_python.py
-```
-
----
-
 ## License
 
-[MIT](LICENSE)
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## Security
-
-To report a vulnerability, see [SECURITY.md](SECURITY.md).
+[MIT](LICENSE) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
