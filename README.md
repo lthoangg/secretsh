@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/lthoangg/secretsh/actions/workflows/ci.yml/badge.svg)](https://github.com/lthoangg/secretsh/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/secretsh.svg)](https://crates.io/crates/secretsh)
+[![PyPI](https://img.shields.io/pypi/v/secretsh.svg)](https://pypi.org/project/secretsh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 secretsh keeps credentials out of LLM context, shell history, and command output. AI agents write commands with `{{PLACEHOLDER}}` tokens; secretsh resolves them against an encrypted vault and redacts any secrets that leak back through stdout/stderr.
