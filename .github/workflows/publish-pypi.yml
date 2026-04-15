@@ -29,20 +29,15 @@ jobs:
 
   linux-aarch64:
     name: Build Linux aarch64 wheel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
       - uses: dtolnay/rust-toolchain@stable
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: aarch64
           manylinux: auto
           command: build
-          docker-options: --platform linux/arm64
           args: --release --features python --find-interpreter --out dist
       - name: Upload wheel
         uses: actions/upload-artifact@v4
