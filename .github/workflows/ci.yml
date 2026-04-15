@@ -40,46 +40,59 @@ jobs:
               - 'deny.toml'
               - 'rustfmt.toml'
 
+  # ── Required checks ────────────────────────────────────────────────────────
+  # These jobs always run (no job-level `if:`) so that GitHub reports them as
+  # "success" even on docs-only PRs.  The expensive steps are guarded by
+  # `if: needs.changes.outputs.code == 'true'` so they only execute when
+  # source files actually changed.
+
   check:
     name: Check
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.code == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.code == 'true'
       - run: cargo check --all-targets
+        if: needs.changes.outputs.code == 'true'
 
   fmt:
     name: Format
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.code == 'true'
         with:
           components: rustfmt
       - run: cargo fmt --all --check
+        if: needs.changes.outputs.code == 'true'
 
   clippy:
     name: Clippy
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.code == 'true'
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.code == 'true'
       - run: cargo clippy --all-targets -- -D warnings
+        if: needs.changes.outputs.code == 'true'
 
   test:
     name: Test (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true' || github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -87,10 +100,18 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.code == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.code == 'true'
       - run: cargo test --all-targets
+        if: needs.changes.outputs.code == 'true'
       - run: cargo test --doc
+        if: needs.changes.outputs.code == 'true'
+
+  # ── Non-required checks ──────────────────────────────────────────────────
+  # These can use job-level `if:` since they are not in the branch ruleset.
 
   audit:
     name: Security Audit

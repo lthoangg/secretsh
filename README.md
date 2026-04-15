@@ -38,6 +38,14 @@ brew tap lthoangg/tap
 brew install secretsh
 ```
 
+### PyPI
+
+```bash
+uv add secretsh
+# or
+pip install secretsh
+```
+
 ### From source
 
 ```bash
