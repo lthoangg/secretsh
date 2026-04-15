@@ -5,13 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-04-15
 
 ### Added
 
 - **Vault export/import:** Full implementation of `export` and `import` subcommands (previously stubs). Python bindings include `export()` and `import_vault()` methods.
 - **`TokenizationError::InvalidKeyName`:** Distinct error variant for placeholder key names that don't match `[A-Za-z_][A-Za-z0-9_]*` (previously reported as `MalformedPlaceholder`).
 - **Documentation:** Migrated design docs from `PLAN.md` into `docs/` directory: `architecture.md`, `vault-format.md`, `threat-model.md`, `tokenizer.md`, `python-api.md`, `testing.md`, `cli.md`.
+- **Examples:** `basic_cli.sh`, `basic_python.py`, `multi_vault.py`.
+- **Homebrew:** `brew tap lthoangg/tap && brew install secretsh`.
 
 ### Changed
 
@@ -19,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **vault.rs:** Cursor mismatch after entry decryption now returns `VaultError::Truncated` instead of misleading `CommitTagMismatch`.
 - **python.rs:** Bytearray zeroing uses `zeroize::Zeroize` trait instead of manual byte loop.
 - **redact.rs:** Doc comment on `redact_stream` now references spawn.rs 50 MiB output limit as buffer bound.
+
+### Fixed
+
+- **CI:** Release binaries now uploaded to GitHub Release (not just workflow artifacts).
+- **CI:** Homebrew workflow waits for binaries before downloading.
+- **CI:** Linux aarch64 PyPI wheel uses native arm64 runner.
+- **CI:** Docs-only PRs skip build/test jobs.
+- **CI:** Publish workflows are idempotent on re-release.
 
 ## [0.1.0] - 2026-04-15
 
@@ -45,5 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vault file permissions enforced at 0600 (hard error if group/world-readable).
 - Exit codes follow GNU coreutils conventions.
 
-[Unreleased]: https://github.com/lthoangg/secretsh/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lthoangg/secretsh/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/lthoangg/secretsh/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lthoangg/secretsh/releases/tag/v0.1.0
