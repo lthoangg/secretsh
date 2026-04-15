@@ -36,13 +36,19 @@ echo "--- init ---"
 secretsh init --vault "$VAULT" --kdf-memory 65536
 echo
 
-# ── 2. Store secrets ──────────────────────────────────────────────────────────
+# ── 2. Store secrets (via import-env) ─────────────────────────────────────────
+# Note: `secretsh set` is interactive (hidden input) and cannot be piped.
+# For scripted usage, use import-env with a .env file.
 
-echo "--- set ---"
-printf 'hunter2'           | secretsh set DB_PASS  --vault "$VAULT"
-printf 'admin'             | secretsh set DB_USER  --vault "$VAULT"
-printf 'sk-live-abc123xyz' | secretsh set API_KEY  --vault "$VAULT"
-echo "Stored 3 secrets."
+echo "--- import-env ---"
+ENV_FILE="$VAULT_DIR/secrets.env"
+cat > "$ENV_FILE" <<'DOTENV'
+DB_PASS=hunter2
+DB_USER=admin
+API_KEY=sk-live-abc123xyz
+DOTENV
+secretsh import-env -f "$ENV_FILE" --vault "$VAULT"
+rm -f "$ENV_FILE"
 echo
 
 # ── 3. List keys ──────────────────────────────────────────────────────────────

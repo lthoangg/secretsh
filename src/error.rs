@@ -372,6 +372,11 @@ pub enum SecretshError {
     #[error("master key error: {0}")]
     MasterKey(#[from] MasterKeyError),
 
+    /// A CLI usage or configuration error (e.g. non-interactive terminal
+    /// where one is required).
+    #[error("{0}")]
+    Config(String),
+
     /// An I/O error that does not fit a more specific category.
     #[error(transparent)]
     Io(#[from] IoError),
@@ -410,6 +415,7 @@ impl SecretshError {
             SecretshError::Placeholder(_) => 125,
             SecretshError::Redaction(_) => 125,
             SecretshError::MasterKey(_) => 125,
+            SecretshError::Config(_) => 125,
             SecretshError::Io(_) => 125,
         }
     }
