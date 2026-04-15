@@ -41,7 +41,7 @@ Command string      "curl -u admin:{{API_PASS}} https://example.com"
 | File | Role | Security notes |
 |------|------|---------------|
 | `main.rs` | Entry: `harden_process()` → clap parse → dispatch | Calls `harden` before anything else |
-| `cli.rs` | Clap definitions + subcommand handlers | `run_run` does the full pipeline: tokenize → resolve → spawn → redact. `run_set` reads stdin via `read_to_end` + strips one trailing newline. Audit log emits `key_count` only (never key names). `cmd_template_hash`/`cmd_resolved_hash` on `run`. |
+| `cli.rs` | Clap definitions + subcommand handlers | `run_run` does the full pipeline: tokenize → resolve → spawn → redact. `run_set` requires an interactive terminal and uses `rpassword` for hidden input (rejects piped stdin). Audit log emits `key_count` only (never key names). `cmd_template_hash`/`cmd_resolved_hash` on `run`. |
 | `error.rs` | `SecretshError` enum + `exit_code()` mapping | Exit codes follow GNU coreutils (124/125/126/127/128+N). `TokenizationError::InvalidKeyName` for bad placeholder key names (distinct from `MalformedPlaceholder` which is for unclosed `{{`). |
 | `tokenizer.rs` | POSIX shell subset parser | **Primary attack surface.** Rejects unquoted `\|;&$()` etc. Quoted chars are always literal. See [tokenizer.md](tokenizer.md). |
 | `vault.rs` | AES-256-GCM vault, Argon2id KDF, HKDF key separation, export/import | Key names are encrypted. Every write re-encrypts with fresh salt. mlock on decrypted entries, O_CLOEXEC on all FDs. See [vault-format.md](vault-format.md). |

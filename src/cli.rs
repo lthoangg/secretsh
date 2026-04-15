@@ -6,7 +6,7 @@
 //! - [`emit_audit`] — JSON Lines audit entry emitted to stderr.
 //! - One handler function per subcommand (`run_init`, `run_set`, …).
 
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand as ClapSubcommand};
@@ -405,27 +405,28 @@ pub fn run_init(args: &InitArgs) -> Result<(), SecretshError> {
 
 /// Handle `secretsh set <KEY_NAME>`.
 ///
-/// Reads the secret value from stdin (stripping a single trailing newline),
-/// stores it in the vault, and emits an audit entry.
+/// When stdin is a terminal, prompts interactively with hidden input (like
+/// `passwd`) and reads a single line on Enter.  When stdin is a pipe,
+/// reads raw bytes until EOF so that `printf 'secret' | secretsh set KEY`
+/// and binary secrets still work.
 pub fn run_set(args: &SetArgs) -> Result<(), SecretshError> {
     let config = args.vault.to_vault_config();
     let mut vault = Vault::open(&config)?;
 
-    // Read secret value from stdin.
-    // We read the raw bytes so that binary secrets are supported.
-    // A single trailing newline is stripped because shells (and `echo`)
-    // typically append one.
+    if !io::stdin().is_terminal() {
+        return Err(SecretshError::Config(
+            "set requires an interactive terminal. \
+             Use `secretsh import-env <file>` for scripted workflows."
+                .into(),
+        ));
+    }
+
     let value: Zeroizing<Vec<u8>> = {
-        let stdin = io::stdin();
-        let mut buf = Vec::new();
-        stdin
-            .lock()
-            .read_to_end(&mut buf)
-            .map_err(|e| SecretshError::Io(crate::error::IoError(e)))?;
-        if buf.ends_with(b"\n") {
-            buf.pop();
-        }
-        Zeroizing::new(buf)
+        eprint!("Enter secret for {}: ", args.key_name);
+        io::stderr().flush().ok();
+        let secret =
+            rpassword::read_password().map_err(|e| SecretshError::Io(crate::error::IoError(e)))?;
+        Zeroizing::new(secret.into_bytes())
     };
 
     vault.set(&args.key_name, &value)?;

@@ -25,20 +25,16 @@ Exits with error if vault already exists at the target path.
 
 ### `secretsh set <KEY_NAME>`
 
-Store a secret. Value read from **stdin** (never on the command line).
+Store a secret interactively. Input is hidden (like `passwd`) and submitted on Enter.
 
 ```bash
-# Type the value interactively, then press Ctrl+D
 secretsh set API_PASS
-
-# Or pipe from a file (e.g. a PEM key)
-secretsh set TLS_KEY < key.pem
+# Enter secret for API_PASS: ********
 ```
 
-- Reads until EOF (supports multi-line values like PEM keys)
-- Strips a single trailing newline (accommodates `echo "value" | ...`)
+- **Requires an interactive terminal** — piped stdin is rejected with an error directing you to `import-env`
 - Key names must match `[A-Za-z_][A-Za-z0-9_]*`
-- Binary values are accepted (vault stores raw bytes)
+- To import from a file, use `secretsh import-env -f .env` instead
 
 ### `secretsh delete <KEY_NAME>`
 
