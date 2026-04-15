@@ -70,6 +70,28 @@ secretsh run --quiet -- "echo {{SECRET}}"
 | `--max-output` | Max stdout bytes before kill | 50 MiB |
 | `--max-stderr` | Max stderr bytes before kill | 1 MiB |
 | `--quiet` | Suppress non-error output | false |
+| `--no-shell` | Reject shell interpreters as the command binary | false |
+
+#### `--no-shell`
+
+Blocks `sh`, `bash`, `zsh`, `dash`, `fish`, `ksh`, `mksh`, `tcsh`, and `csh` — by basename, so both `bash` and `/usr/bin/bash` are rejected. Exits with code 125 if a shell is detected.
+
+**Recommended for all AI-agent contexts.** Without this flag, an agent can construct shell conditionals to probe secret values:
+
+```bash
+# Without --no-shell: AI can infer the secret via conditional output
+# (output is "yes" or "no", not the secret, so not redacted)
+secretsh run -- sh -c "..."
+
+# With --no-shell: rejected before any child process runs, exit 125
+secretsh run --no-shell -- sh -c "..."
+# → secretsh error: shell delegation blocked: "sh" is a shell interpreter
+
+# Non-shell binaries are unaffected
+secretsh run --no-shell -- curl -H "Authorization: {{TOKEN}}" https://api.example.com
+```
+
+Note: `--no-shell` closes the shell conditional oracle but does **not** close the redaction side-channel oracle. See `docs/threat-model.md` for details.
 
 ### `secretsh export --out <PATH>`
 
@@ -153,5 +175,8 @@ These follow GNU coreutils conventions (`timeout`, `env`).
 
 ## Security Notes
 
-- Set the master passphrase env var in your shell session -- **never** inline on the command line (`SECRETSH_KEY=pass secretsh run ...` is recorded in shell history). Use `read -rs SECRETSH_KEY && export SECRETSH_KEY` instead.
+- Set the master passphrase env var in your shell session — **never** inline on the command line (`SECRETSH_KEY=pass secretsh run ...` is recorded in shell history). Use `read -rs SECRETSH_KEY && export SECRETSH_KEY` instead.
 - All audit entries are emitted to stderr as JSON Lines. Key names are never logged.
+- Always place `--vault` **before** `--`. Anything after `--` is captured as the command to execute; `secretsh run -- cmd --vault path` silently uses the default vault.
+- Use `--no-shell` whenever secretsh is invoked by an AI agent. This prevents the agent from using `sh -c` conditionals to probe secret values.
+- Output redaction is substring matching. If your secret value is a common string (e.g. `123456`, `true`, `yes`), expect false positives — unrelated output containing that string will also be redacted.

@@ -41,12 +41,12 @@ Command string      "curl -u admin:{{API_PASS}} https://example.com"
 | File | Role | Security notes |
 |------|------|---------------|
 | `main.rs` | Entry: `harden_process()` → clap parse → dispatch | Calls `harden` before anything else |
-| `cli.rs` | Clap definitions + subcommand handlers | `run_run` does the full pipeline: tokenize → resolve → spawn → redact. `run_set` requires an interactive terminal and uses `rpassword` for hidden input (rejects piped stdin). Audit log emits `key_count` only (never key names). `cmd_template_hash`/`cmd_resolved_hash` on `run`. |
+| `cli.rs` | Clap definitions + subcommand handlers | `run_run` does the full pipeline: tokenize → resolve → `--no-shell` check → spawn → redact. `--no-shell` rejects known shell interpreters (sh, bash, zsh, dash, fish, ksh, mksh, tcsh, csh) by argv[0] basename before any child runs — blocks shell conditional oracle attacks. `run_set` requires an interactive terminal and uses `rpassword` for hidden input (rejects piped stdin). Audit log emits `key_count` only (never key names). `cmd_template_hash`/`cmd_resolved_hash` on `run`. |
 | `error.rs` | `SecretshError` enum + `exit_code()` mapping | Exit codes follow GNU coreutils (124/125/126/127/128+N). `TokenizationError::InvalidKeyName` for bad placeholder key names (distinct from `MalformedPlaceholder` which is for unclosed `{{`). |
 | `tokenizer.rs` | POSIX shell subset parser | **Primary attack surface.** Rejects unquoted `\|;&$()` etc. Quoted chars are always literal. See [tokenizer.md](tokenizer.md). |
 | `vault.rs` | AES-256-GCM vault, Argon2id KDF, HKDF key separation, export/import | Key names are encrypted. Every write re-encrypts with fresh salt. mlock on decrypted entries, O_CLOEXEC on all FDs. See [vault-format.md](vault-format.md). |
 | `redact.rs` | Aho-Corasick multi-pattern redaction | Generates patterns for raw + base64 + base64url + URL-encoded + hex(lower/upper). Streaming redaction buffers entire input; bounded by spawn.rs output limit (default 50 MiB). |
-| `spawn.rs` | `posix_spawnp` child process with pipe capture | **macOS only** — uses `posix_spawnp`, not `fork+exec`. FD_CLOEXEC on pipes, not `POSIX_SPAWN_CLOEXEC_DEFAULT` (breaks pipe dup2). |
+| `spawn.rs` | `posix_spawnp` child process with pipe capture | **macOS only** — uses `posix_spawnp`, not `fork+exec`. FD_CLOEXEC on pipes, not `POSIX_SPAWN_CLOEXEC_DEFAULT` (breaks pipe dup2). argv[0] is passed through the redactor before appearing in any spawn error message to prevent secret leakage via error text. |
 | `harden.rs` | `setrlimit(RLIMIT_CORE, 0)`, `mlock`, `madvise` | All failures are warnings, never hard errors |
 | `python.rs` | PyO3 bindings (feature-gated) | See [python-api.md](python-api.md). |
 
@@ -90,19 +90,23 @@ secretsh installs signal handlers for SIGINT, SIGTERM, and SIGHUP. When received
 
 If the child does not exit within 5 seconds after SIGTERM, SIGKILL is sent. secretsh then exits with code `128 + signal_number`.
 
-## Resource Limits
+## `run` Flags
 
-| Limit | Default | Flag | Python parameter |
-|-------|---------|------|-----------------|
-| Execution timeout | 300s | `--timeout` | `timeout_secs` |
-| Max stdout | 50 MiB | `--max-output` | `max_output_bytes` |
-| Max stderr | 1 MiB | `--max-stderr` | `max_stderr_bytes` |
+| Flag | Default | Purpose | Python parameter |
+|------|---------|---------|-----------------|
+| `--no-shell` | off | Reject shell interpreters as argv[0] (exit 125) | — |
+| `--timeout` | 300s | Kill child after N seconds | `timeout_secs` |
+| `--max-output` | 50 MiB | Kill child if stdout exceeds this | `max_output_bytes` |
+| `--max-stderr` | 1 MiB | Kill child if stderr exceeds this | `max_stderr_bytes` |
+| `--quiet` | off | Suppress audit JSON on stderr | — |
 
-Exceeding any limit triggers SIGTERM → 5s wait → SIGKILL escalation (exit code 124).
+Timeout and output-limit kills use SIGTERM → 5s wait → SIGKILL escalation (exit code 124). `--no-shell` exits with code 125 before spawning any child.
 
 ## Output Redaction
 
-secretsh intercepts child stdout and stderr via pipes and scans for secret values using an Aho-Corasick multi-pattern automaton. Patterns are generated for each vault entry in these encodings:
+secretsh intercepts child stdout and stderr via pipes and scans for secret values using an Aho-Corasick multi-pattern automaton. Patterns are generated for each vault entry in these encodings.
+
+**Limitation:** Redaction is substring matching. If a secret value (e.g. `123456`, `true`) appears in unrelated output, it will be redacted — a false positive. There is no fix within the current substring-matching model. See [threat-model.md](threat-model.md).
 
 | Encoding | Redaction label | Example |
 |----------|----------------|---------|

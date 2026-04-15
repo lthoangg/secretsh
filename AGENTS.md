@@ -13,7 +13,7 @@ secretsh is a single-crate Rust binary + library that injects secrets from an en
 | [docs/threat-model.md](docs/threat-model.md) | Security principles, in-scope/out-of-scope threats, comparison with alternatives |
 | [docs/tokenizer.md](docs/tokenizer.md) | Quoting rules, metacharacter rejection, placeholder syntax, error cases |
 | [docs/python-api.md](docs/python-api.md) | PyO3 bindings, Vault class, exception hierarchy, memory lifetime, GIL release |
-| [docs/testing.md](docs/testing.md) | Test inventory (188 Rust + 20 Python), conventions, fuzz testing plans |
+| [docs/testing.md](docs/testing.md) | Test inventory (233 Rust + 20 Python), conventions, fuzz testing plans, known gaps |
 | [docs/cli.md](docs/cli.md) | Full CLI subcommand reference, exit codes, vault location |
 | [examples/](examples/) | Runnable examples: CLI walkthrough, Python API, multi-vault |
 
@@ -21,7 +21,7 @@ secretsh is a single-crate Rust binary + library that injects secrets from an en
 
 ```bash
 cargo build                          # dev build
-cargo test                           # 188 unit tests, ~4s
+cargo test                           # 233 tests (220 unit + 13 integration), ~27s
 cargo clippy -- -D warnings          # must be zero warnings (CI enforces -D)
 cargo fmt --check                    # rustfmt.toml: max_width=100
 cargo build --release                # LTO + strip
@@ -67,7 +67,20 @@ echo 'MY_SECRET=hunter2' > /tmp/test.env
 rm /tmp/test.env
 ./target/release/secretsh run --quiet -- "echo {{MY_SECRET}}"
 # Output: [REDACTED_MY_SECRET]
+
+# --no-shell smoke test (AI-agent hardening)
+./target/release/secretsh run --quiet --no-shell -- "echo {{MY_SECRET}}"
+# Output: [REDACTED_MY_SECRET]
+./target/release/secretsh run --no-shell -- sh -c "echo {{MY_SECRET}}" 2>&1
+# Output: secretsh error: spawn error: shell delegation blocked: "sh" ...
 ```
+
+## Security conventions
+
+- **`--no-shell` is recommended for all AI-agent contexts.** It blocks `sh`, `bash`, `zsh`, `dash`, `fish`, `ksh`, `mksh`, `tcsh`, and `csh` (by basename) as argv[0], preventing shell conditional oracle attacks.
+- **Output redaction is substring matching** — false positives occur when a secret value (e.g. `123456`) appears in unrelated output. This is a known design limitation with no fix within the current model.
+- **`--vault` must appear before `--`** in `run` invocations. Flags after `--` are captured as the command to execute.
+- See [docs/threat-model.md](docs/threat-model.md) for a full breakdown of what is and is not protected.
 
 ## Releasing a new version
 

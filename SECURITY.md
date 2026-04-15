@@ -27,6 +27,7 @@ Include the following in your report:
 The following are considered in-scope vulnerabilities:
 
 - Secret value leakage through any output channel (stdout, stderr, logs)
+- Secret value appearing in spawn error messages (e.g. `command not found: "s3cr3t"`)
 - Vault encryption bypasses or key recovery attacks
 - Tokenizer bypasses that allow shell injection
 - Memory disclosure of secret values after zeroization
@@ -35,10 +36,13 @@ The following are considered in-scope vulnerabilities:
 
 The following are explicitly **out of scope** (see [docs/threat-model.md](docs/threat-model.md)):
 
-- `/proc/<pid>/cmdline` inspection by same-UID processes
+- `/proc/<pid>/cmdline` inspection by same-UID processes (secret is in child argv by design)
 - Physical memory attacks (cold boot, DMA)
 - Malicious child processes exfiltrating their own argv
 - Side-channel attacks on cryptographic implementations
+- Redaction false positives — a secret value (e.g. `123456`) appearing in unrelated output being redacted is expected behavior, not a vulnerability
+- The redaction side-channel oracle (`echo {{KEY}}==guess` leaking one bit per probe) — this is a known design limitation of substring redaction, not a reportable vulnerability
+- Shell conditional oracles when `--no-shell` is not set — operators are responsible for passing `--no-shell` in AI-agent contexts
 
 ## Supported Versions
 

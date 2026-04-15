@@ -435,11 +435,14 @@ pub fn spawn_child(
     // ── 1. Extract the command name for error messages (before zeroizing) ────
     //
     // The first argv element is null-terminated; strip the trailing NUL for
-    // display purposes.
+    // display purposes.  Run the result through the redactor so that a secret
+    // value substituted into argv[0] (e.g. `{{KEY}}` used as the executable
+    // name) is never exposed in the error message.
     let command_name: String = {
         let raw = argv[0].as_slice();
         let without_nul = raw.strip_suffix(b"\0").unwrap_or(raw);
-        String::from_utf8_lossy(without_nul).into_owned()
+        let display = String::from_utf8_lossy(without_nul).into_owned();
+        redactor.redact_str(&display)
     };
 
     // ── 2. Build CString argv ─────────────────────────────────────────────────
@@ -819,6 +822,36 @@ mod tests {
         assert_eq!(err.exit_code(), 127);
     }
 
+    // ── secret must not appear in command-not-found error message ────────────
+
+    #[test]
+    fn secret_value_in_argv0_is_redacted_in_not_found_error() {
+        // Simulates `secretsh run -- "{{MY_KEY}}"` where MY_KEY="s3cr3t_cmd".
+        // After substitution argv[0] = "s3cr3t_cmd", which is not on PATH.
+        // The error message must NOT contain "s3cr3t_cmd".
+        let secret = b"s3cr3t_cmd";
+        let redactor = Redactor::new(&[("MY_KEY", secret)]).expect("Redactor::new should succeed");
+        let argv = vec![arg("s3cr3t_cmd")];
+        let config = SpawnConfig::default();
+
+        let err = spawn_child(argv, &redactor, &config)
+            .expect_err("nonexistent binary should return an error");
+
+        assert!(
+            matches!(err, SecretshError::Spawn(SpawnError::NotFound { .. })),
+            "expected SpawnError::NotFound, got: {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("s3cr3t_cmd"),
+            "error message must not contain the secret value, got: {msg:?}"
+        );
+        assert!(
+            msg.contains("[REDACTED_MY_KEY]"),
+            "error message should contain the redaction label, got: {msg:?}"
+        );
+    }
+
     // ── stderr capture ────────────────────────────────────────────────────────
 
     #[test]
@@ -927,6 +960,167 @@ mod tests {
             result.stdout.contains("foo") && result.stdout.contains("bar"),
             "stdout should contain both args, got: {:?}",
             result.stdout
+        );
+    }
+
+    // ── secret redacted in NotExecutable error ────────────────────────────────
+
+    #[test]
+    fn secret_value_in_argv0_is_redacted_in_not_executable_error() {
+        // Create a non-executable file whose name IS the secret value, then
+        // try to spawn it.  The error must not expose the secret.
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let secret_str = "s3cr3t_noexec";
+        let path = dir.path().join(secret_str);
+        fs::write(&path, b"not a script").expect("write");
+        // Explicitly remove execute permission.
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("set_permissions");
+
+        let secret = secret_str.as_bytes();
+        let redactor = Redactor::new(&[("MY_KEY", secret)]).expect("Redactor::new should succeed");
+        let argv = vec![arg(path.to_str().unwrap())];
+        let config = SpawnConfig::default();
+
+        let err = spawn_child(argv, &redactor, &config)
+            .expect_err("non-executable file should return an error");
+
+        assert!(
+            matches!(
+                err,
+                SecretshError::Spawn(SpawnError::NotExecutable { .. })
+                    | SecretshError::Spawn(SpawnError::NotFound { .. })
+            ),
+            "expected NotExecutable or NotFound, got: {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(
+            !msg.contains(secret_str),
+            "error message must not contain the secret value, got: {msg:?}"
+        );
+    }
+
+    // ── secret redacted in ForkExecFailed error ───────────────────────────────
+
+    #[test]
+    fn secret_value_in_argv0_is_redacted_in_fork_exec_failed_error() {
+        // Trigger a ForkExecFailed by passing a path with an interior NUL byte,
+        // which CString::from_vec_with_nul rejects before reaching posix_spawnp.
+        // The command name extracted before the CString conversion must still
+        // be redacted.
+        let secret = b"s3cr3t_fork";
+        let redactor = Redactor::new(&[("MY_KEY", secret)]).expect("Redactor::new should succeed");
+
+        // Build argv[0] = "s3cr3t_fork\0" (valid null-terminated).
+        // Then smuggle an interior NUL into argv[1] to trigger ForkExecFailed.
+        let mut bad_arg = b"arg\0with_nul".to_vec();
+        bad_arg.push(0); // second NUL so from_vec_with_nul sees interior NUL
+                         // Actually from_vec_with_nul requires exactly one trailing NUL.
+                         // Pass a vec that has NUL in the middle: b"bad\0arg\0"
+        let interior_nul_arg = Zeroizing::new(b"bad\0arg\0".to_vec());
+
+        let argv = vec![arg("s3cr3t_fork"), interior_nul_arg];
+        let config = SpawnConfig::default();
+
+        let err =
+            spawn_child(argv, &redactor, &config).expect_err("interior NUL should return an error");
+
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("s3cr3t_fork"),
+            "ForkExecFailed error must not contain the secret value, got: {msg:?}"
+        );
+    }
+
+    // ── secret redacted in argv0 with trailing literal suffix ─────────────────
+
+    #[test]
+    fn secret_value_in_argv0_with_suffix_is_redacted_in_error() {
+        // Simulates `secretsh run -- "{{MY_KEY}}==literal"` where
+        // MY_KEY="s3cr3t_pfx".  After substitution argv[0] = "s3cr3t_pfx==literal",
+        // which is not on PATH.  Neither "s3cr3t_pfx" nor the resolved
+        // "s3cr3t_pfx==literal" must appear in the error message.
+        let secret = b"s3cr3t_pfx";
+        let redactor = Redactor::new(&[("MY_KEY", secret)]).expect("Redactor::new should succeed");
+        let argv = vec![arg("s3cr3t_pfx==literal")];
+        let config = SpawnConfig::default();
+
+        let err = spawn_child(argv, &redactor, &config)
+            .expect_err("nonexistent binary should return an error");
+
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("s3cr3t_pfx"),
+            "error message must not contain the secret value, got: {msg:?}"
+        );
+        assert!(
+            msg.contains("[REDACTED_MY_KEY]"),
+            "error message should contain the redaction label, got: {msg:?}"
+        );
+    }
+
+    // ── redaction oracle: matching literal also gets redacted ─────────────────
+
+    #[test]
+    fn secret_value_appearing_twice_in_output_both_redacted() {
+        // This is the oracle-defence test: if secret="development" and output
+        // is "development==development", BOTH occurrences must be redacted.
+        // An AI probing `echo {{KEY}}==development` gets
+        // "[REDACTED_K]==[REDACTED_K]" regardless of whether the guess matched,
+        // because the redactor finds every byte-level occurrence of the secret.
+        // The *wrong* value ("wrongguess") does NOT get redacted.
+        let secret = b"development";
+        let redactor = Redactor::new(&[("APP_ENV", secret)]).expect("Redactor::new should succeed");
+
+        // Simulate child output when guess matches: "development==development"
+        let output_match = "development==development";
+        let redacted_match = redactor.redact_str(output_match);
+        assert_eq!(
+            redacted_match, "[REDACTED_APP_ENV]==[REDACTED_APP_ENV]",
+            "both occurrences of the secret must be redacted when guess matches"
+        );
+
+        // Simulate child output when guess does NOT match: "development==wrongguess"
+        let output_nomatch = "development==wrongguess";
+        let redacted_nomatch = redactor.redact_str(output_nomatch);
+        assert_eq!(
+            redacted_nomatch, "[REDACTED_APP_ENV]==wrongguess",
+            "only the secret occurrence is redacted when guess does not match"
+        );
+
+        // Confirm: an AI cannot distinguish match from no-match via redaction
+        // alone — both outputs contain "[REDACTED_APP_ENV]==" but the match
+        // case shows a second label while no-match shows the literal suffix.
+        // This means the oracle still leaks one bit of information (whether
+        // the suffix was also redacted), which is a known design limitation
+        // documented in docs/threat-model.md.
+    }
+
+    // ── redaction applied to stderr ───────────────────────────────────────────
+
+    #[test]
+    fn secret_in_stderr_is_redacted() {
+        let secret = b"stderr_s3cr3t";
+        let redactor = Redactor::new(&[("ERR_KEY", secret)]).expect("Redactor::new should succeed");
+
+        // Write secret to stderr via sh -c.
+        let argv = vec![arg("sh"), arg("-c"), arg("echo stderr_s3cr3t >&2")];
+        let config = SpawnConfig::default();
+
+        let result = spawn_child(argv, &redactor, &config).expect("sh -c should succeed");
+
+        assert_eq!(result.exit_code, 0);
+        assert!(
+            !result.stderr.contains("stderr_s3cr3t"),
+            "stderr must not contain the raw secret, got: {:?}",
+            result.stderr
+        );
+        assert!(
+            result.stderr.contains("[REDACTED_ERR_KEY]"),
+            "stderr should contain the redaction label, got: {:?}",
+            result.stderr
         );
     }
 
