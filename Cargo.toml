@@ -1,6 +1,6 @@
 [package]
 name = "secretsh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Secure subprocess secret injection for AI agents"
