@@ -203,13 +203,22 @@ fn to_py_err(e: SecretshError) -> PyErr {
         SecretshError::Tokenization(_) => TokenizationError::new_err(msg),
 
         // ── Spawn errors ──────────────────────────────────────────────────────
-        SecretshError::Spawn(se) => match se {
-            SpawnError::NotFound { .. }
-            | SpawnError::NotExecutable { .. }
-            | SpawnError::ForkExecFailed { .. }
-            | SpawnError::Timeout { .. }
-            | SpawnError::OutputLimitExceeded { .. } => CommandError::new_err(msg),
-        },
+        SecretshError::Spawn(se) => {
+            // EXHAUSTIVENESS GUARD: this match must cover every SpawnError
+            // variant.  If you add a new variant to SpawnError, you MUST
+            // add it here too — otherwise this file will fail to compile
+            // with `--features python`, which is checked explicitly in CI
+            // (`cargo clippy --features python` and
+            // `cargo test --features python`).
+            match se {
+                SpawnError::NotFound { .. }
+                | SpawnError::NotExecutable { .. }
+                | SpawnError::ForkExecFailed { .. }
+                | SpawnError::Timeout { .. }
+                | SpawnError::OutputLimitExceeded { .. }
+                | SpawnError::ShellDelegationBlocked { .. } => CommandError::new_err(msg),
+            }
+        }
 
         // ── Config / Redaction / I/O errors ──────────────────────────────────
         SecretshError::Config(_) | SecretshError::Redaction(_) | SecretshError::Io(_) => {

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-04-15
+
+### Fixed
+
+- **`python.rs` non-exhaustive match on `SpawnError`:** `ShellDelegationBlocked` variant added in 0.1.4 was missing from the PyO3 error mapping, causing a compile error in the PyPI publish workflow. The match now covers all variants and has an exhaustiveness guard comment.
+- **CI now checks `--features python`:** `cargo clippy --features python` and `cargo test --lib --features python` added to CI so this class of error is caught before release.
+
+[0.1.5]: https://github.com/lthoangg/secretsh/compare/v0.1.4...v0.1.5
+
 ## [0.1.4] - 2026-04-15
 
 > **Beta release.** Core functionality is stable and tested. The security model has known limitations around substring redaction false positives and the redaction side-channel oracle — see [docs/threat-model.md](docs/threat-model.md) before deploying in sensitive environments.
