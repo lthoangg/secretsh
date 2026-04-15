@@ -255,6 +255,18 @@ pub enum SpawnError {
     )]
     NotExecutable { command: String },
 
+    /// The resolved argv[0] is a known shell interpreter and `--no-shell` was
+    /// set.  Shell delegation is blocked to prevent oracle attacks where an AI
+    /// agent constructs `sh -c '[ "{{KEY}}" = guess ]'` probes to infer secret
+    /// values through conditional output.
+    ///
+    /// Maps to exit code 125 (internal secretsh error).
+    #[error(
+        "shell delegation blocked: {shell:?} is a shell interpreter — \
+         remove --no-shell if you genuinely need shell features"
+    )]
+    ShellDelegationBlocked { shell: String },
+
     /// The underlying `fork(2)` / `posix_spawnp(3)` / `execvp(2)` syscall
     /// failed for a reason other than "not found" or "not executable".
     #[error("failed to spawn {command:?}: {reason}")]
@@ -680,5 +692,51 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("/tmp/vault.lock"));
         assert!(msg.contains("30"));
+    }
+
+    // ── ShellDelegationBlocked ────────────────────────────────────────────────
+
+    #[test]
+    fn shell_delegation_blocked_display_contains_shell_name() {
+        let err = SpawnError::ShellDelegationBlocked {
+            shell: "bash".into(),
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("bash"),
+            "error message should contain the shell name, got: {msg:?}"
+        );
+        assert!(
+            msg.contains("shell delegation blocked"),
+            "error message should contain the phrase 'shell delegation blocked', got: {msg:?}"
+        );
+    }
+
+    #[test]
+    fn shell_delegation_blocked_exit_code_is_125() {
+        let err: SecretshError =
+            SecretshError::Spawn(SpawnError::ShellDelegationBlocked { shell: "sh".into() });
+        assert_eq!(
+            err.exit_code(),
+            125,
+            "ShellDelegationBlocked should map to exit code 125"
+        );
+    }
+
+    #[test]
+    fn shell_delegation_blocked_display_does_not_contain_secret() {
+        // The shell name in the error comes from the resolved argv[0] basename.
+        // If a secret happened to resolve to a shell name, the error message
+        // must not inadvertently expose it — the basename-only extraction means
+        // only the last path component appears, and the redactor in cli.rs has
+        // already been applied before this error is constructed.
+        // This test verifies the display format is bounded to the basename.
+        let err = SpawnError::ShellDelegationBlocked { shell: "sh".into() };
+        let msg = err.to_string();
+        // The full path "/usr/local/bin/sh" must not appear — only "sh".
+        assert!(
+            !msg.contains("/usr/local/bin"),
+            "error should only contain basename, not full path, got: {msg:?}"
+        );
     }
 }

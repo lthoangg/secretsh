@@ -65,13 +65,32 @@ secretsh run --vault "$VAULT" --quiet -- \
 # Output: [REDACTED_DB_USER]:[REDACTED_DB_PASS]
 echo
 
-echo "--- run (incidental secret in output is caught) ---"
+echo "--- run (incidental secret in output is redacted) ---"
 secretsh run --vault "$VAULT" --quiet -- \
     "echo 'the password is hunter2'"
 # Output: the password is [REDACTED_DB_PASS]
+# NOTE: redaction is substring matching — if your secret is a common string
+# like "123456", every occurrence in child output will be redacted, including
+# unrelated content (port numbers, counts, log lines). This is a known
+# limitation with no fix in the current model.
 echo
 
-# ── 5. Export & import ────────────────────────────────────────────────────────
+# ── 5. --no-shell (AI-agent hardening) ───────────────────────────────────────
+# Blocks sh, bash, zsh, dash, fish, ksh, mksh, tcsh, csh as argv[0].
+# Recommended whenever secretsh is invoked by an AI agent.
+
+echo "--- --no-shell: non-shell binary allowed ---"
+secretsh run --vault "$VAULT" --quiet --no-shell -- \
+    "echo {{DB_USER}}"
+# Output: [REDACTED_DB_USER]
+echo
+
+echo "--- --no-shell: shell interpreter blocked (exit 125) ---"
+secretsh run --vault "$VAULT" --no-shell -- sh -c "echo hello" 2>&1 || true
+# Output: secretsh error: spawn error: shell delegation blocked: "sh" ...
+echo
+
+# ── 6. Export & import ────────────────────────────────────────────────────────
 
 echo "--- export ---"
 BACKUP="$VAULT_DIR/backup.vault.bin"
@@ -90,7 +109,7 @@ echo "Keys after import:"
 secretsh list --vault "$VAULT"
 echo
 
-# ── 6. Exit codes ─────────────────────────────────────────────────────────────
+# ── 7. Exit codes ─────────────────────────────────────────────────────────────
 
 echo "--- exit codes ---"
 secretsh run --vault "$VAULT" --quiet -- "true"

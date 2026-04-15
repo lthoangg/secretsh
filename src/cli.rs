@@ -15,7 +15,7 @@ use serde_json::json;
 use zeroize::Zeroizing;
 
 use crate::dotenv::parse_dotenv;
-use crate::error::SecretshError;
+use crate::error::{SecretshError, SpawnError};
 use crate::redact::Redactor;
 use crate::spawn::{spawn_child, SpawnConfig};
 use crate::tokenizer::tokenize;
@@ -282,6 +282,20 @@ pub struct RunArgs {
     #[arg(long)]
     pub verbose: bool,
 
+    /// Reject shell interpreters (sh, bash, zsh, dash, fish, ksh, tcsh) as
+    /// the command binary.
+    ///
+    /// When set, `secretsh run` will refuse to execute any command whose
+    /// resolved argv[0] is a known shell, even if the shell is invoked via an
+    /// absolute path (e.g. `/bin/sh`).  This closes the shell-delegation
+    /// oracle: an AI agent cannot construct `sh -c '[ "{{KEY}}" = guess ]'`
+    /// probes when this flag is active.
+    ///
+    /// Recommended for all AI-agent contexts.  Human operators who genuinely
+    /// need shell features can omit this flag.
+    #[arg(long)]
+    pub no_shell: bool,
+
     /// The command string to execute (with `{{KEY}}` placeholders).
     ///
     /// Pass after `--`, e.g.: `secretsh run ... -- "psql {{DB_URL}}"`
@@ -546,6 +560,32 @@ pub fn run_run(args: &RunArgs) -> Result<i32, SecretshError> {
         // Append null terminator (required by spawn_child / posix_spawnp).
         resolved.push(0u8);
         argv.push(Zeroizing::new(resolved));
+    }
+
+    // ── --no-shell enforcement ────────────────────────────────────────────────
+    //
+    // If the operator set --no-shell, reject any command whose resolved argv[0]
+    // basename is a known shell interpreter.  This is checked AFTER placeholder
+    // substitution so that a `{{KEY}}` that resolves to "bash" is also caught.
+    // The check uses the basename only, so both "sh" and "/bin/sh" are blocked.
+    if args.no_shell {
+        // Well-known POSIX and popular interactive shells.
+        const BLOCKED_SHELLS: &[&str] = &[
+            "sh", "bash", "zsh", "dash", "fish", "ksh", "ksh93", "mksh", "tcsh", "csh",
+        ];
+
+        let argv0_raw = argv[0].as_slice();
+        let argv0_without_nul = argv0_raw.strip_suffix(b"\0").unwrap_or(argv0_raw);
+        let argv0_str = String::from_utf8_lossy(argv0_without_nul);
+
+        // Extract the basename: "/usr/bin/bash" → "bash", "bash" → "bash".
+        let basename = argv0_str.rsplit('/').next().unwrap_or(&argv0_str);
+
+        if BLOCKED_SHELLS.contains(&basename) {
+            return Err(SecretshError::Spawn(SpawnError::ShellDelegationBlocked {
+                shell: basename.to_owned(),
+            }));
+        }
     }
 
     // Build the Redactor from all vault secrets.
