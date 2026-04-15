@@ -211,8 +211,10 @@ fn to_py_err(e: SecretshError) -> PyErr {
             | SpawnError::OutputLimitExceeded { .. } => CommandError::new_err(msg),
         },
 
-        // ── Redaction / I/O errors ────────────────────────────────────────────
-        SecretshError::Redaction(_) | SecretshError::Io(_) => SecretSHError::new_err(msg),
+        // ── Config / Redaction / I/O errors ──────────────────────────────────
+        SecretshError::Config(_) | SecretshError::Redaction(_) | SecretshError::Io(_) => {
+            SecretSHError::new_err(msg)
+        }
     }
 }
 
