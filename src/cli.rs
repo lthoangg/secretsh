@@ -113,6 +113,7 @@ pub fn run(cli: &Cli) -> Result<i32, SecretshError> {
             let secret = secret_map.get(&placeholder.key).ok_or_else(|| {
                 crate::error::PlaceholderError::UnresolvedKey {
                     key: placeholder.key.clone(),
+                    available_keys: secret_map.keys().cloned().collect(),
                 }
             })?;
             let mut new_resolved = Vec::with_capacity(

@@ -210,7 +210,105 @@ class TestStderrCapture:
         assert result.exit_code == 1
 
 
-class TestEdgeCases:
+class TestPlaceholderError:
+    """Tests for the improved PlaceholderError with available-keys listing."""
+
+    def test_missing_key_error_contains_key_name(self, temp_env_file):
+        """Error message names the missing key."""
+        with pytest.raises(PlaceholderError) as exc_info:
+            run(temp_env_file, "echo {{NONEXISTENT_KEY}}", quiet=True)
+        assert "NONEXISTENT_KEY" in str(exc_info.value)
+
+    def test_missing_key_error_lists_available_keys(self, temp_env_file):
+        """Error message lists all available key names."""
+        with pytest.raises(PlaceholderError) as exc_info:
+            run(temp_env_file, "echo {{NONEXISTENT_KEY}}", quiet=True)
+        msg = str(exc_info.value)
+        assert "TEST_SECRET" in msg
+        assert "API_KEY" in msg
+        assert "DATABASE_URL" in msg
+
+    def test_missing_key_error_does_not_leak_values(self, temp_env_file):
+        """Error message never contains secret values."""
+        with pytest.raises(PlaceholderError) as exc_info:
+            run(temp_env_file, "echo {{NONEXISTENT_KEY}}", quiet=True)
+        msg = str(exc_info.value)
+        assert "hunter2" not in msg
+        assert "sk-test-12345" not in msg
+
+    def test_empty_env_file_says_no_keys(self, empty_env_file):
+        """Empty .env gives 'no keys' message."""
+        with pytest.raises(PlaceholderError) as exc_info:
+            run(empty_env_file, "echo {{FOO}}", quiet=True)
+        assert "no keys" in str(exc_info.value)
+
+
+class TestQuotingPatterns:
+    """Tests that single-quoted arguments inside command strings work correctly.
+
+    Because run() passes the command as a single string to secretsh (not through
+    a parent shell), single quotes inside the string reach the tokenizer directly.
+    """
+
+    def test_single_quoted_arg_with_space(self, temp_env_file):
+        """Single-quoted argument containing a space is treated as one token."""
+        result = run(temp_env_file, "echo 'hello world'", quiet=True)
+        assert result.exit_code == 0
+        assert "hello world" in result.stdout
+
+    def test_pipe_inside_single_quotes_is_literal(self, temp_env_file):
+        """| inside single quotes is a literal character, not a pipe."""
+        # jq filter style — single-quoted so | reaches tokenizer as literal
+        result = run(temp_env_file, "echo 'a|b'", quiet=True)
+        assert result.exit_code == 0
+        assert "a|b" in result.stdout
+
+    def test_dollar_inside_single_quotes_is_literal(self, temp_env_file):
+        """$ inside single quotes is not expanded."""
+        result = run(temp_env_file, "echo '$2 > 10'", quiet=True)
+        assert result.exit_code == 0
+        assert "$2 > 10" in result.stdout
+
+    def test_unquoted_pipe_rejected(self, temp_env_file):
+        """Unquoted | is rejected with TokenizationError."""
+        with pytest.raises(TokenizationError):
+            run(temp_env_file, "echo foo | cat", quiet=True)
+
+    def test_unquoted_ampersand_rejected(self, temp_env_file):
+        """Unquoted & is rejected with TokenizationError."""
+        with pytest.raises(TokenizationError):
+            run(temp_env_file, "curl https://example.com?a=1&b=2", quiet=True)
+
+    def test_question_mark_in_url_allowed(self, temp_env_file):
+        """? in a URL is allowed unquoted."""
+        # We can't make a real request in unit tests, but we can verify the
+        # tokenizer accepts it by running echo with a URL-like string.
+        result = run(temp_env_file, "echo https://api.example.com/v1?limit=1", quiet=True)
+        assert result.exit_code == 0
+        assert "https://api.example.com/v1?limit=1" in result.stdout
+
+    def test_angle_brackets_allowed_as_literals(self, temp_env_file):
+        """< and > are allowed unquoted as literal bytes."""
+        result = run(temp_env_file, "echo a>b<c", quiet=True)
+        assert result.exit_code == 0
+        assert "a>b<c" in result.stdout
+
+    def test_bracket_allowed_as_literal(self, temp_env_file):
+        """[ is allowed unquoted as a literal byte."""
+        result = run(temp_env_file, "echo [abc]", quiet=True)
+        assert result.exit_code == 0
+        assert "[abc]" in result.stdout
+
+    def test_secret_in_single_quoted_header(self, temp_env_file):
+        """Secret placeholder works inside single-quoted header argument."""
+        result = run(
+            temp_env_file,
+            "echo 'Authorization: {{TEST_SECRET}}'",
+            quiet=True,
+        )
+        assert result.exit_code == 0
+        assert "hunter2" not in result.stdout
+        assert "[REDACTED_TEST_SECRET]" in result.stdout
     """Tests for edge cases."""
 
     def test_empty_command(self, temp_env_file):

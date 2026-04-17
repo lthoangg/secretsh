@@ -3,7 +3,40 @@
 Usage:
     import secretsh
 
-    secretsh.run(".env", "echo {{KEY}}")
+    result = secretsh.run(".env", "curl -sS -H 'X-Api-Key: {{API_KEY}}' 'https://api.example.com/v1/data'")
+    print(result.stdout)
+
+Quoting rules
+-------------
+The ``command`` argument is a **single string** that is parsed by secretsh's
+own tokenizer — it never passes through a shell.  Write it exactly as you
+would type it in a terminal, using single quotes for arguments that contain
+spaces, pipes, or special characters:
+
+    # Spaces in header value — single-quote the header
+    "curl -H 'Authorization: Bearer {{TOKEN}}' https://api.example.com"
+
+    # jq filter with pipe and brackets — single-quote the filter
+    "curl -s https://api.example.com/data | jq '.[] | select(.active)'"  # pipe handled by parent shell
+    "jq '.results[] | select(.score > 90)' data.json"                   # filter must be single-quoted
+
+    # awk program with $ — single-quote the program
+    "awk '$2 > 10' file.txt"
+
+    # URL with query string — single-quote if it contains &
+    "curl 'https://api.example.com/search?q=hello&limit=10'"
+
+Because the command passes as a single string to secretsh, the single quotes
+inside it are seen by the tokenizer and work as expected.  You do NOT need the
+double-wrapping trick required when calling secretsh from the CLI.
+
+Secret placeholders
+-------------------
+Use ``{{KEY_NAME}}`` anywhere in the command string.  Keys are resolved from
+the ``.env`` file at runtime.  If a key is missing, ``PlaceholderError`` is
+raised with a sorted list of available keys so the agent can self-correct.
+
+    "curl -H 'X-Api-Key: {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday'"
 """
 
 from __future__ import annotations
@@ -92,27 +125,60 @@ def run(
 ) -> RunResult:
     """Run a command with secret injection and output redaction.
 
+    The ``command`` string is parsed by secretsh's own tokenizer and passed
+    directly to ``posix_spawnp`` — no shell is involved.  Write it as a
+    natural shell command string using single quotes for arguments that contain
+    spaces, pipes, ``$``, or other special characters:
+
+        # Header with a space in the value
+        run(".env", "curl -H 'Authorization: Bearer {{TOKEN}}' https://api.example.com")
+
+        # jq filter with pipe and comparison operators
+        run(".env", "jq '.results[] | select(.score > 90)' data.json")
+
+        # awk program with $ field references
+        run(".env", "awk '$2 > 10' file.txt")
+
+        # URL with & in query string
+        run(".env", "curl 'https://api.example.com/search?q=hello&limit=10'")
+
+    The single quotes inside the string are seen by secretsh's tokenizer
+    directly (no parent-shell stripping), so ``|``, ``$``, and ``&`` inside
+    quoted arguments are treated as literals.
+
     Args:
-        env_file: Path to the .env file containing secrets.
-        command: Command string with {{KEY}} placeholders.
-        timeout: Max seconds before SIGTERM + SIGKILL (default 300).
-        max_output: Max stdout bytes before kill (default 50 MiB).
-        max_stderr: Max stderr bytes before kill (default 1 MiB).
-        no_shell: Block shell interpreters (recommended for AI agents).
-        quiet: Suppress audit output on stderr.
-        verbose: Show tokenization debug output.
+        env_file: Path to the ``.env`` file containing secrets.
+        command: Command string with optional ``{{KEY_NAME}}`` placeholders.
+            Write it as you would type it in a terminal.  Single-quote
+            arguments that contain spaces or special characters.
+        timeout: Max wall-clock seconds before SIGTERM + SIGKILL (default 300).
+        max_output: Max stdout bytes before the child is killed (default 50 MiB).
+        max_stderr: Max stderr bytes before the child is killed (default 1 MiB).
+        no_shell: Block shell interpreters (sh, bash, zsh, …) as the command
+            binary.  Recommended for all AI-agent contexts — prevents shell
+            conditional oracle attacks.
+        quiet: Suppress audit JSON on stderr.
+        verbose: Emit tokenization debug output on stderr.
 
     Returns:
-        RunResult with stdout, stderr, exit_code, timed_out, and audit.
+        RunResult with ``stdout``, ``stderr``, ``exit_code``, ``timed_out``,
+        and ``audit`` (None when ``quiet=True``).
 
     Raises:
-        TokenizationError: Command contains rejected metacharacters.
-        PlaceholderError: A {{KEY}} was not found in the .env file.
-        CommandError: Binary not found, not executable, or spawn failure.
-        SecretSHError: General error.
+        TokenizationError: Command contains an unquoted rejected metacharacter
+            (``|``, ``&``, ``;``, `` ` ``, ``(``).  Wrap the argument in
+            single quotes.
+        PlaceholderError: A ``{{KEY}}`` placeholder was not found in the
+            ``.env`` file.  The error message lists all available key names.
+        CommandError: Binary not found (exit 127), not executable (exit 126),
+            shell blocked by ``--no-shell`` (exit 125), or spawn failure.
+        SecretSHError: Other secretsh internal error (exit 125).
 
-    Example:
-        >>> result = run(".env", "curl -u {{USER}}:{{PASS}} https://api.example.com")
+    Examples:
+        >>> result = run(".env", "curl -sS -H 'X-Api-Key: {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday'", no_shell=True, quiet=True)
+        >>> print(result.stdout)
+
+        >>> result = run(".env", "jq '.results[] | select(.score > 90)' data.json", no_shell=True, quiet=True)
         >>> print(result.stdout)
     """
     binary = _find_binary()

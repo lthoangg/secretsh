@@ -4,6 +4,31 @@
 Usage:
     pip install secretsh langchain
     python langchain_shell_tool_demo.py
+
+Quoting guide for the agent
+---------------------------
+The shell tool accepts a natural command string.  Because secretsh parses it
+directly (no parent shell involved), single quotes inside the string work as
+expected:
+
+    # Header with a space — single-quote the header value
+    shell("curl -sS -H 'X-Api-Key: {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday'")
+
+    # jq filter with pipe and comparison
+    shell("jq '.results[] | select(.score > 90)' data.json")
+
+    # awk program with $ field references
+    shell("awk '$2 > 10' file.txt")
+
+    # URL with & — single-quote the URL
+    shell("curl 'https://api.example.com/search?q=hello&limit=10'")
+
+    # Pipe to jq — use the parent shell pipe, not inside the command string
+    import subprocess
+    result = shell("curl -sS -H 'X-Api-Key: {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday'")
+    # then: subprocess / LangChain chain to pipe result.stdout through jq
+
+Available secret keys are listed in PlaceholderError if a key is missing.
 """
 
 from pathlib import Path
@@ -11,58 +36,62 @@ from pathlib import Path
 import secretsh
 from langchain.tools import tool
 
-env_file = Path(__file__).parent / ".env.example"
+env_file = Path(__file__).parent / ".env"
 
 
 @tool
 def shell(command: str) -> str:
-    """Execute a shell command with secrets injected from .env file.
+    """Execute a command with secrets injected from the .env file.
 
-    Secrets are referenced using {{SECRET_NAME}} syntax.
-    Secret values are automatically redacted from all output.
+    Secrets are referenced using {{SECRET_NAME}} syntax — never put raw
+    secret values in the command string.  Secret values are automatically
+    redacted from all output returned to you.
+
+    Write the command as a natural shell string.  Use single quotes for
+    arguments containing spaces, pipes, $ signs, or & characters:
+
+        curl -sS -H 'X-Api-Key: {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday'
+        jq '.results[] | select(.score > 90)' data.json
+        awk '$2 > 10' file.txt
+        curl 'https://api.example.com/search?q=hello&limit=10'
+
+    If a secret key is not found, the error message lists all available keys.
 
     Args:
-        command: Shell command with optional {{SECRET_NAME}} placeholders.
+        command: Shell command string with optional {{KEY_NAME}} placeholders.
     """
-
     if not env_file.exists():
-        return "Error: .env.example file not found"
+        return f"Error: .env file not found at {env_file}"
 
-    result = secretsh.run(str(env_file), command, timeout=30, quiet=True)
-    return result.stdout
+    try:
+        result = secretsh.run(str(env_file), command, no_shell=True, quiet=True, timeout=30)
+        output = result.stdout
+        if result.stderr:
+            output += result.stderr
+        if result.exit_code != 0:
+            output += f"\n[exit code: {result.exit_code}]"
+        return output
+    except secretsh.PlaceholderError as e:
+        return f"Secret not found: {e}"
+    except secretsh.TokenizationError as e:
+        return f"Command syntax error: {e}\nHint: wrap arguments containing | $ & in single quotes."
+    except secretsh.CommandError as e:
+        return f"Command failed: {e}"
 
 
 if __name__ == "__main__":
-    # Demo: invoke the tool directly
     print("Shell tool demo:")
-    print(f"Result: {shell.invoke('echo API key is {{DEMO_API_KEY}}')}")
-    print(f"Result: {shell.invoke('echo DB password is {{DB_PASSWORD}}')}")
-    print(f"Result: {shell.invoke(f'cat {env_file}')}")
+    print(shell.invoke("echo API key is {{DEMO_API_KEY}}"))
+    print(shell.invoke("echo DB password is {{DB_PASSWORD}}"))
+    print(shell.invoke("curl -sS -H 'X-Api-Key: {{DEMO_API_KEY}}' 'https://httpbin.org/headers'"))
+    print(shell.invoke("echo {{MISSING_KEY}}"))  # demonstrates available-keys error
 
-# Output:
+# Example output:
 # Shell tool demo:
-# Result: API key is [REDACTED_DEMO_API_KEY]
-
-# Result: DB password is [REDACTED_DB_PASSWORD]
-
-# Result: # Example .env file for secretsh LangChain demo
-# # Copy this to .env and fill in your actual secrets
-
-# # API Keys
-# DEMO_API_KEY=[REDACTED_DEMO_API_KEY]
-# OPENAI_API_KEY=[REDACTED_OPENAI_API_KEY]
-
-# # Database credentials
-# DB_HOST=[REDACTED_DB_HOST]
-# DB_PORT=[REDACTED_DB_PORT]
-# DB_NAME=[REDACTED_DB_NAME]
-# DB_USER=[REDACTED_DB_USER]
-# DB_PASSWORD=[REDACTED_DB_PASSWORD]
-
-# # Service tokens
-# GITHUB_TOKEN=[REDACTED_GITHUB_TOKEN]
-# AWS_ACCESS_KEY_ID=[REDACTED_AWS_ACCESS_KEY_ID]
-# AWS_SECRET_ACCESS_KEY=[REDACTED_AWS_SECRET_ACCESS_KEY]
-
-# # SSH keys (example path - don't put actual keys in .env!)
-# SSH_KEY_PATH=[REDACTED_SSH_KEY_PATH]
+# API key is [REDACTED_DEMO_API_KEY]
+#
+# DB password is [REDACTED_DB_PASSWORD]
+#
+# {"headers": {"Accept": "*/*", "Host": "httpbin.org", "X-Api-Key": "[REDACTED_DEMO_API_KEY]", ...}}
+#
+# Secret not found: secretsh error: placeholder error: "MISSING_KEY" not found in env file; available keys: [AWS_ACCESS_KEY_ID, ...]

@@ -40,18 +40,39 @@ The tokenizer is the security boundary between agent-generated input and process
 2. Verify all metacharacter rejection tests still pass
 3. Be fuzz-tested before merge
 
+**Currently rejected unquoted:** `|`, `&`, `;`, `` ` ``, `(`, `*`, `$` (when followed by alphanumeric/`_`/`{`/`(`).
+
+**Currently allowed unquoted (literal bytes — no shell expansion occurs):** `?`, `<`, `>`, `[`.
+
+`|`, `&`, `;` are rejected not for security reasons (posix_spawnp never interprets them) but to prevent silent wrong behaviour: an agent writing `curl ... | jq .` would get `|` passed as a literal arg to curl with no pipe created and no error.
+
 ## E2E smoke test
 
 ```bash
 echo 'MY_SECRET=hunter2' > /tmp/test.env
-./target/release/secretsh --env /tmp/test.env run --quiet -- echo {{MY_SECRET}}
+
+# Basic injection + redaction
+./target/release/secretsh --env /tmp/test.env run --quiet -- echo '{{MY_SECRET}}'
 # Output: [REDACTED_MY_SECRET]
 
-# --no-shell smoke test (AI-agent hardening)
-./target/release/secretsh --env /tmp/test.env run --quiet --no-shell -- echo {{MY_SECRET}}
+# --no-shell blocks shell interpreters
+./target/release/secretsh --env /tmp/test.env run --quiet --no-shell -- echo '{{MY_SECRET}}'
 # Output: [REDACTED_MY_SECRET]
-./target/release/secretsh --env /tmp/test.env run --no-shell -- sh -c "echo {{MY_SECRET}}" 2>&1
+./target/release/secretsh --env /tmp/test.env run --no-shell -- sh -c "'echo {{MY_SECRET}}'" 2>&1
 # Output: secretsh error: spawn error: shell delegation blocked: "sh" ...
+
+# Unresolved key lists available keys
+./target/release/secretsh --env /tmp/test.env run --quiet -- echo '{{MISSING_KEY}}' 2>&1
+# Output: secretsh error: placeholder error: "MISSING_KEY" not found in env file; available keys: [MY_SECRET]
+
+# Real API call (command passed as single string — inner quotes reach tokenizer)
+./target/release/secretsh --env .env run --quiet --no-shell -- \
+  "curl -sS -H 'X-Api-Key: {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday'"
+# Output: [{"quote": "...", "author": "...", ...}]
+
+# Pipe via parent shell (not inside command string)
+./target/release/secretsh --env .env run --quiet --no-shell -- \
+  curl -sS -H 'X-Api-Key:\ {{NINJA_API_KEY}}' 'https://api.api-ninjas.com/v2/quoteoftheday' | jq '.'
 ```
 
 ## Security conventions

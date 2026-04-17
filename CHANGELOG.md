@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-18
+
+### Changed
+
+- **Unresolved placeholder error now lists available keys:** When a `{{KEY}}` placeholder cannot be resolved, the error message includes a sorted list of all key names present in the `.env` file — never their values. e.g. `"NINJA_API_KEY" not found in env file; available keys: [GITHUB_TOKEN, OPENAI_KEY]`. If the `.env` file has no keys: `env file has no keys`. Immediately actionable for AI agents without exposing secrets.
+
+- **Tokenizer: `?`, `<`, `>`, `[` no longer rejected unquoted.** secretsh uses `posix_spawnp` directly — no shell ever interprets these characters. Allowing them as literal argv bytes unblocks common real-world patterns:
+  - `?` — URL query strings: `https://api.example.com/v1/quotes?limit=1`
+  - `>` / `<` — jq/awk comparisons: `'.[] | select(.age > 18)'`, `'$2 > 10'`
+  - `[` — jq filters: `'.[0]'`, `'.results[]'`; regex patterns: `'[a-z]+'`
+
+  `|`, `&`, `;` remain rejected — not for security reasons, but to prevent silent wrong behaviour when an agent writes `curl ... | jq .` expecting a pipe that never runs.
+
+- **Python wrapper (`secretsh/__init__.py`) docstring rewritten** with a full quoting guide. The command string is passed directly to secretsh (not through a shell), so single quotes inside the string work naturally — no double-wrapping needed.
+
+- **LangChain demo (`examples/langchain_shell_tool_demo.py`) rewritten:**
+  - Tool docstring gives the agent concrete copy-paste examples with correct quoting
+  - `no_shell=True` set by default (was missing)
+  - Separate `except` blocks for `PlaceholderError`, `TokenizationError`, `CommandError` return actionable messages to the agent
+
+### Added
+
+- **End-to-end integration tests (`tests/e2e.rs`):** 25 `assert_cmd`-based tests covering secret injection, redaction (stdout + stderr), unresolved key listing (with and without available keys), exit code passthrough, `--no-shell` blocking, `--quiet` audit suppression, timeout (124), command not found (127), metacharacter rejection, `.env` parsing variants, and missing env file.
+
+- **Python tests for new behaviours (`python/tests/test_secretsh.py`):**
+  - `TestPlaceholderError` (4 tests) — available-keys listing, no value leakage, empty env file message
+  - `TestQuotingPatterns` (9 tests) — single-quoted args with space/pipe/dollar, `?`/`<`/`>`/`[` allowed unquoted, unquoted `|`/`&` rejected, secret in single-quoted header
+
+### Documentation
+
+All docs updated to reflect the tokenizer changes and quoting model:
+- `docs/tokenizer.md` — rewritten with allowed/rejected table, quoting guide for CLI and Python
+- `docs/cli.md` — quoting guide, unresolved placeholder error examples
+- `docs/python-api.md` — quoting guide, updated exception docs with available-keys note, known limitations
+- `docs/architecture.md` — redaction scope clarified (stdout/stderr pipes only, not files)
+- `docs/threat-model.md` — file exfil oracle added, recommended config updated to Python snippet
+- `docs/testing.md` — test counts updated, per-test descriptions for e2e suite
+- `README.md` — quick start updated to real API example, quoting guide added
+
+[0.2.1]: https://github.com/lthoangg/secretsh/compare/v0.2.0...v0.2.1
+
 ## [0.2.0] - 2026-04-17
 
 > **Architecture change.** The encrypted vault model (AES-256-GCM + Argon2id, `init`/`set`/`delete`/`list` subcommands, `--master-key-env`) has been removed. Secrets are now read directly from a plain `.env` file. This is a **breaking change** for any caller using the vault CLI or the `secretsh.Vault` Python class.

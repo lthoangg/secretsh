@@ -15,8 +15,19 @@
 //!
 //! # Rejected unquoted metacharacters
 //!
-//! `|`, `>`, `<`, `&`, `;`, `` ` ``, `(`, `*`, `?`, `[`, `$` (when followed
+//! `|`, `&`, `;`, `` ` ``, `(`, `*`, `$` (when followed
 //! by an alphanumeric character or `{`).
+//!
+//! `?`, `<`, `>`, and `[` are **not** rejected: secretsh spawns via
+//! `posix_spawnp` directly and never invokes a shell, so these are always
+//! passed as literal argv bytes.  This allows unquoted URLs (`?`),
+//! redirects-as-comparisons (`>`/`<` in jq/awk), and bracket expressions
+//! (`[` in jq filters and regex patterns).
+//!
+//! `|`, `&`, `;` are kept rejected not for security reasons (posix_spawnp
+//! never interprets them) but to prevent **silent wrong behaviour**: an agent
+//! writing `curl ... | jq .` without a shell would pass `|` as a literal arg
+//! to curl, producing no pipe and no error — a confusing silent failure.
 //!
 //! Characters inside single or double quotes are **never** rejected.
 
@@ -207,15 +218,17 @@ fn lex(input: &str) -> Result<Vec<String>, SecretshError> {
                     }
 
                     // Redirect (plain `>` or `<`)
-                    // Note: `<(` and `>(` are also caught here because the
-                    // leading `<`/`>` is rejected first.
-                    '>' | '<' => {
-                        return Err(TokenizationError::RejectedMetacharacter {
-                            character: ch,
-                            offset: byte_offset,
-                        }
-                        .into());
-                    }
+                    //
+                    // These are intentionally NOT rejected. secretsh spawns
+                    // via posix_spawnp directly — no shell ever interprets
+                    // them as redirect operators. As literal argv bytes they
+                    // appear legitimately in:
+                    //   - jq filters:   '.[] | select(.age > 18)'
+                    //   - awk programs: '$2 > 10'
+                    //   - grep patterns: '<tag>'
+                    //   - comparison expressions passed to python3/ruby/etc.
+                    // Note: `<(` and `>(` (process substitution) are caught by
+                    // the `(` rejection below.
 
                     // Ampersand — covers `&` (background) and `&&` (AND-list)
                     '&' => {
@@ -254,7 +267,18 @@ fn lex(input: &str) -> Result<Vec<String>, SecretshError> {
                     }
 
                     // Glob characters
-                    '*' | '?' | '[' => {
+                    //
+                    // `*` is rejected: no legitimate literal use in direct
+                    // argv that isn't better handled by quoting, and it
+                    // strongly implies glob intent.
+                    //
+                    // `[` is intentionally NOT rejected. secretsh uses
+                    // posix_spawnp directly — no shell ever glob-expands it.
+                    // `[` appears legitimately as a literal byte in:
+                    //   - jq filters:     '.[] | select(.x > 0)'
+                    //   - regex patterns: '[a-z]+'
+                    //   - Python slices:  'list[0]'
+                    '*' => {
                         return Err(TokenizationError::RejectedMetacharacter {
                             character: ch,
                             offset: byte_offset,
@@ -715,26 +739,27 @@ mod tests {
     }
 
     #[test]
-    fn rejects_redirect_out() {
-        let e = tok_err("foo > /dev/null");
-        assert!(
-            matches!(
-                e,
-                TokenizationError::RejectedMetacharacter { character: '>', .. }
-            ),
-            "got: {e:?}"
+    fn greater_than_is_allowed_unquoted() {
+        // posix_spawnp never redirects — > is a literal byte in argv.
+        assert_eq!(
+            values(&tok("awk '$2 > 10' file.txt")),
+            ["awk", "$2 > 10", "file.txt"]
         );
     }
 
     #[test]
-    fn rejects_redirect_in() {
-        let e = tok_err("foo < /dev/null");
-        assert!(
-            matches!(
-                e,
-                TokenizationError::RejectedMetacharacter { character: '<', .. }
-            ),
-            "got: {e:?}"
+    fn less_than_is_allowed_unquoted() {
+        assert_eq!(
+            values(&tok("grep <pattern> file")),
+            ["grep", "<pattern>", "file"]
+        );
+    }
+
+    #[test]
+    fn jq_select_with_comparison_is_allowed() {
+        assert_eq!(
+            values(&tok("jq '.[] | select(.age > 18)'")),
+            ["jq", ".[] | select(.age > 18)"]
         );
     }
 
@@ -849,27 +874,57 @@ mod tests {
     }
 
     #[test]
-    fn rejects_glob_question() {
-        let e = tok_err("ls ?");
+    fn question_mark_is_allowed_unquoted() {
+        // `?` is not a shell metacharacter in direct argv context — it appears
+        // legitimately in URL query strings and is never glob-expanded by
+        // posix_spawnp.
+        assert_eq!(
+            values(&tok("https://api.example.com/v1?limit=1")),
+            ["https://api.example.com/v1?limit=1"]
+        );
+    }
+
+    #[test]
+    fn url_with_query_string_passes_through() {
+        // Single query param — ? is now allowed unquoted.
+        assert_eq!(
+            values(&tok("curl https://api.example.com/v1/quotes?limit=1")),
+            ["curl", "https://api.example.com/v1/quotes?limit=1"]
+        );
+        // Multiple params require quoting because & is still rejected.
+        assert_eq!(
+            values(&tok(
+                "curl 'https://api.example.com/v1/quotes?limit=1&cat=famous'"
+            )),
+            [
+                "curl",
+                "https://api.example.com/v1/quotes?limit=1&cat=famous"
+            ]
+        );
+    }
+
+    #[test]
+    fn url_with_multiple_query_params_unquoted_ampersand_still_rejected() {
+        // & remains rejected — agents must quote URLs with multiple params
+        let e = tok_err("curl https://api.example.com?a=1&b=2");
         assert!(
             matches!(
                 e,
-                TokenizationError::RejectedMetacharacter { character: '?', .. }
+                TokenizationError::RejectedMetacharacter { character: '&', .. }
             ),
             "got: {e:?}"
         );
     }
 
     #[test]
-    fn rejects_glob_bracket() {
-        let e = tok_err("ls [abc]");
-        assert!(
-            matches!(
-                e,
-                TokenizationError::RejectedMetacharacter { character: '[', .. }
-            ),
-            "got: {e:?}"
+    fn bracket_is_allowed_unquoted() {
+        // posix_spawnp never glob-expands — [ is a literal byte in argv.
+        // Essential for jq filters, regex patterns, and Python slices.
+        assert_eq!(
+            values(&tok("jq '.[0]' data.json")),
+            ["jq", ".[0]", "data.json"]
         );
+        assert_eq!(values(&tok("grep '[a-z]' file")), ["grep", "[a-z]", "file"]);
     }
 
     #[test]

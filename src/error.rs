@@ -88,12 +88,36 @@ pub enum TokenizationError {
 pub enum PlaceholderError {
     /// The env file contains no entry for the requested key.
     ///
+    /// `available_keys` lists every key that *was* loaded from the env file so
+    /// the caller (or an AI agent) can see what is actually available.
+    ///
     /// The command is **not** executed when this error occurs.
-    #[error(
-        "unresolved placeholder {{{key}}} — no entry with that name \
-         exists in the env file. Use `secretsh --env .env run --` to reference keys from your .env file"
-    )]
-    UnresolvedKey { key: String },
+    #[error("{}", UnresolvedKeyDisplay { key, available_keys })]
+    UnresolvedKey {
+        key: String,
+        available_keys: Vec<String>,
+    },
+}
+
+/// Helper that formats the `UnresolvedKey` error message, including the sorted
+/// list of available keys.
+struct UnresolvedKeyDisplay<'a> {
+    key: &'a str,
+    available_keys: &'a [String],
+}
+
+impl std::fmt::Display for UnresolvedKeyDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\" not found in env file", self.key)?;
+        if self.available_keys.is_empty() {
+            write!(f, "; env file has no keys")?;
+        } else {
+            let mut sorted = self.available_keys.to_vec();
+            sorted.sort_unstable();
+            write!(f, "; available keys: [{}]", sorted.join(", "))?;
+        }
+        Ok(())
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,6 +355,7 @@ mod tests {
     fn placeholder_maps_to_125() {
         let err = SecretshError::Placeholder(PlaceholderError::UnresolvedKey {
             key: "MY_SECRET".into(),
+            available_keys: vec![],
         });
         assert_eq!(err.exit_code(), 125);
     }
@@ -361,7 +386,10 @@ mod tests {
 
     #[test]
     fn from_placeholder_error() {
-        let inner = PlaceholderError::UnresolvedKey { key: "K".into() };
+        let inner = PlaceholderError::UnresolvedKey {
+            key: "K".into(),
+            available_keys: vec![],
+        };
         let err: SecretshError = inner.into();
         assert!(matches!(err, SecretshError::Placeholder(_)));
     }
@@ -435,9 +463,39 @@ mod tests {
     fn display_unresolved_key_contains_key_name() {
         let err = PlaceholderError::UnresolvedKey {
             key: "DB_PASS".into(),
+            available_keys: vec!["API_KEY".into(), "DB_USER".into()],
         };
         let msg = err.to_string();
-        assert!(msg.contains("DB_PASS"));
+        assert!(msg.contains("DB_PASS"), "should contain the missing key");
+        assert!(msg.contains("API_KEY"), "should list available key API_KEY");
+        assert!(msg.contains("DB_USER"), "should list available key DB_USER");
+    }
+
+    #[test]
+    fn display_unresolved_key_empty_env_file() {
+        let err = PlaceholderError::UnresolvedKey {
+            key: "FOO".into(),
+            available_keys: vec![],
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("FOO"));
+        assert!(msg.contains("no keys"), "should say env file has no keys");
+    }
+
+    #[test]
+    fn display_unresolved_key_available_keys_are_sorted() {
+        let err = PlaceholderError::UnresolvedKey {
+            key: "MISSING".into(),
+            available_keys: vec!["Z_KEY".into(), "A_KEY".into(), "M_KEY".into()],
+        };
+        let msg = err.to_string();
+        let a_pos = msg.find("A_KEY").unwrap();
+        let m_pos = msg.find("M_KEY").unwrap();
+        let z_pos = msg.find("Z_KEY").unwrap();
+        assert!(
+            a_pos < m_pos && m_pos < z_pos,
+            "keys should appear sorted: {msg}"
+        );
     }
 
     // ── ShellDelegationBlocked ────────────────────────────────────────────────
