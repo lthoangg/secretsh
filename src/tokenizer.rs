@@ -741,12 +741,18 @@ mod tests {
     #[test]
     fn greater_than_is_allowed_unquoted() {
         // posix_spawnp never redirects — > is a literal byte in argv.
-        assert_eq!(values(&tok("awk '$2 > 10' file.txt")), ["awk", "$2 > 10", "file.txt"]);
+        assert_eq!(
+            values(&tok("awk '$2 > 10' file.txt")),
+            ["awk", "$2 > 10", "file.txt"]
+        );
     }
 
     #[test]
     fn less_than_is_allowed_unquoted() {
-        assert_eq!(values(&tok("grep <pattern> file")), ["grep", "<pattern>", "file"]);
+        assert_eq!(
+            values(&tok("grep <pattern> file")),
+            ["grep", "<pattern>", "file"]
+        );
     }
 
     #[test]
@@ -872,7 +878,10 @@ mod tests {
         // `?` is not a shell metacharacter in direct argv context — it appears
         // legitimately in URL query strings and is never glob-expanded by
         // posix_spawnp.
-        assert_eq!(values(&tok("https://api.example.com/v1?limit=1")), ["https://api.example.com/v1?limit=1"]);
+        assert_eq!(
+            values(&tok("https://api.example.com/v1?limit=1")),
+            ["https://api.example.com/v1?limit=1"]
+        );
     }
 
     #[test]
@@ -884,8 +893,13 @@ mod tests {
         );
         // Multiple params require quoting because & is still rejected.
         assert_eq!(
-            values(&tok("curl 'https://api.example.com/v1/quotes?limit=1&cat=famous'")),
-            ["curl", "https://api.example.com/v1/quotes?limit=1&cat=famous"]
+            values(&tok(
+                "curl 'https://api.example.com/v1/quotes?limit=1&cat=famous'"
+            )),
+            [
+                "curl",
+                "https://api.example.com/v1/quotes?limit=1&cat=famous"
+            ]
         );
     }
 
@@ -894,7 +908,10 @@ mod tests {
         // & remains rejected — agents must quote URLs with multiple params
         let e = tok_err("curl https://api.example.com?a=1&b=2");
         assert!(
-            matches!(e, TokenizationError::RejectedMetacharacter { character: '&', .. }),
+            matches!(
+                e,
+                TokenizationError::RejectedMetacharacter { character: '&', .. }
+            ),
             "got: {e:?}"
         );
     }
@@ -903,7 +920,10 @@ mod tests {
     fn bracket_is_allowed_unquoted() {
         // posix_spawnp never glob-expands — [ is a literal byte in argv.
         // Essential for jq filters, regex patterns, and Python slices.
-        assert_eq!(values(&tok("jq '.[0]' data.json")), ["jq", ".[0]", "data.json"]);
+        assert_eq!(
+            values(&tok("jq '.[0]' data.json")),
+            ["jq", ".[0]", "data.json"]
+        );
         assert_eq!(values(&tok("grep '[a-z]' file")), ["grep", "[a-z]", "file"]);
     }
 

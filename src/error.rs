@@ -492,7 +492,10 @@ mod tests {
         let a_pos = msg.find("A_KEY").unwrap();
         let m_pos = msg.find("M_KEY").unwrap();
         let z_pos = msg.find("Z_KEY").unwrap();
-        assert!(a_pos < m_pos && m_pos < z_pos, "keys should appear sorted: {msg}");
+        assert!(
+            a_pos < m_pos && m_pos < z_pos,
+            "keys should appear sorted: {msg}"
+        );
     }
 
     // ── ShellDelegationBlocked ────────────────────────────────────────────────

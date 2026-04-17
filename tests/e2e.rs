@@ -214,7 +214,15 @@ fn no_shell_blocks_sh() {
 fn no_shell_blocks_bash() {
     let env = env_file("K=v\n");
     cmd_with_env(&env)
-        .args(["run", "--quiet", "--no-shell", "--", "bash", "-c", "echo hi"])
+        .args([
+            "run",
+            "--quiet",
+            "--no-shell",
+            "--",
+            "bash",
+            "-c",
+            "echo hi",
+        ])
         .assert()
         .failure()
         .code(125)
