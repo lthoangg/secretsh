@@ -1,4 +1,4 @@
-//! Minimal `.env` file parser for `secretsh import-env`.
+//! `.env` file parser for secretsh.
 //!
 //! Supported syntax:
 //!
@@ -10,7 +10,7 @@
 //! - Blank lines (ignored)
 //! - Inline comments: `KEY=value # comment` (only when unquoted)
 //!
-//! Key names must match the vault constraint `[A-Za-z_][A-Za-z0-9_]*`.
+//! Key names must match `[A-Za-z_][A-Za-z0-9_]*`.
 //! Values are returned as raw bytes (`Vec<u8>`).
 
 use std::path::Path;

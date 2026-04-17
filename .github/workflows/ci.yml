@@ -89,8 +89,6 @@ jobs:
         if: needs.changes.outputs.code == 'true'
       - run: cargo clippy --all-targets -- -D warnings
         if: needs.changes.outputs.code == 'true'
-      - run: cargo clippy --all-targets --features python -- -D warnings
-        if: needs.changes.outputs.code == 'true'
 
   test:
     name: Test (${{ matrix.os }})
@@ -108,12 +106,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: needs.changes.outputs.code == 'true'
       - run: cargo test --all-targets
-        if: needs.changes.outputs.code == 'true'
-      # Test with python feature to catch non-exhaustive matches in python.rs.
-      # Use --lib only: --all-targets would also build the cdylib which
-      # requires libpython linkage that is not available in the plain Rust CI
-      # environment (maturin handles that separately in publish-pypi.yml).
-      - run: cargo test --lib --features python
         if: needs.changes.outputs.code == 'true'
       - run: cargo test --doc
         if: needs.changes.outputs.code == 'true'

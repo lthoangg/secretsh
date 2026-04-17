@@ -3,7 +3,7 @@
 //! Implements a **strict subset of POSIX shell quoting rules** and rejects any
 //! unquoted shell metacharacter that could allow shell-injection or unintended
 //! expansion.  After tokenization each token is scanned for `{{KEY_NAME}}`
-//! placeholders whose positions are recorded for later vault resolution.
+//! placeholders whose positions are recorded for later .env resolution.
 //!
 //! # Quoting rules
 //!
@@ -415,7 +415,7 @@ fn scan_placeholders(value: &str) -> Result<Vec<Placeholder>, SecretshError> {
             if !found_close {
                 // Build the fragment for the error message: `{{` + whatever
                 // key characters we collected before EOF.
-                let fragment = format!("{{{{{}", &value[key_start..i]);
+                let fragment = format!("{{{{{}}}", &value[key_start..i]);
                 return Err(TokenizationError::MalformedPlaceholder { fragment }.into());
             }
 
@@ -436,10 +436,6 @@ fn scan_placeholders(value: &str) -> Result<Vec<Placeholder>, SecretshError> {
 
             i = close_end;
         } else {
-            // Check for a lone `{` that might be the start of a malformed
-            // placeholder — only flag it if it is followed by another `{`
-            // somewhere later without a proper close.  We do this lazily:
-            // a single `{` that is NOT followed by another `{` is fine.
             i += 1;
         }
     }

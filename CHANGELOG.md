@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-04-17
+
+> **Architecture change.** The encrypted vault model (AES-256-GCM + Argon2id, `init`/`set`/`delete`/`list` subcommands, `--master-key-env`) has been removed. Secrets are now read directly from a plain `.env` file. This is a **breaking change** for any caller using the vault CLI or the `secretsh.Vault` Python class.
+
+### Changed
+
+- **Primary interface simplified to `--env`:** `secretsh --env <path> run -- <command>` is now the only subcommand. The vault subcommands (`init`, `set`, `delete`, `list`, `export`, `import`, `import-env`) are removed.
+- **`python/secretsh/__init__.py`** (CLI subprocess wrapper): already matched the `.env` model; no changes needed.
+- **`docs/python-api.md`:** Rewritten for the `secretsh.run()` API.
+- **`docs/testing.md`:** Test counts corrected (187 Rust tests).
+- **`docs/architecture.md`:** Module map cleaned up.
+
+### Removed
+
+- `src/vault.rs` and encrypted vault model (AES-256-GCM + Argon2id + HKDF).
+- `src/python.rs` PyO3 native extension (`secretsh._native`) — no longer needed without in-process vault decryption. Use `import secretsh` directly.
+- CLI subcommands: `init`, `set`, `delete`, `list`, `export`, `import`, `import-env`.
+- `--master-key-env` flag.
+- `rpassword` and `pyo3` dependencies.
+- `ring`-based KDF / HKDF key material. `ring` is still present for SHA-256 audit log hashing.
+
+### Migration
+
+```bash
+# Before (0.1.x)
+secretsh --master-key-env SECRETSH_KEY init
+secretsh --master-key-env SECRETSH_KEY set API_PASS
+secretsh --master-key-env SECRETSH_KEY run -- curl -u admin:{{API_PASS}} https://example.com
+
+# After (0.2.0)
+echo 'API_PASS=hunter2' > .env
+chmod 600 .env
+secretsh --env .env run -- curl -u admin:{{API_PASS}} https://example.com
+```
+
+Python callers:
+
+```python
+# Before (0.1.x)
+import secretsh._native as _n
+with _n.Vault(master_key_env="SECRETSH_KEY") as v:
+    result = v.run("curl -u admin:{{API_PASS}} https://example.com")
+
+# After (0.2.0)
+import secretsh
+result = secretsh.run(".env", "curl -u admin:{{API_PASS}} https://example.com")
+```
+
+[0.2.0]: https://github.com/lthoangg/secretsh/compare/v0.1.5...v0.2.0
+
 ## [0.1.5] - 2026-04-15
 
 ### Fixed
