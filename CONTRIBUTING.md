@@ -22,14 +22,15 @@ cargo clippy -- -D warnings
 cargo fmt
 ```
 
-### Python Bindings
+### Python Tests
 
 ```bash
-uv venv .venv && source .venv/bin/activate
-uv sync --group dev                      # install pytest, pytest-cov
-maturin develop --features python        # build native module into venv
-python -m pytest tests/ -v               # run Python tests
+cd python
+pip install -e ".[dev]"
+pytest tests/ -v
 ```
+
+The Python package is a pure-Python CLI wrapper — no compilation step needed. The tests require the `secretsh` binary to be available (built via `cargo build` in the repo root, or installed system-wide).
 
 ## Code Standards
 
@@ -83,7 +84,7 @@ Use conventional commit prefixes: `fix:`, `feat:`, `refactor:`, `test:`, `docs:`
 - [ ] `cargo fmt --check` passes
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] `cargo test` passes (all existing + new tests)
-- [ ] `python -m pytest tests/` passes (if Python bindings are affected)
+- [ ] `pytest python/tests/` passes (if Python package is affected)
 - [ ] New public APIs have doc comments
 - [ ] Security-sensitive changes have corresponding test coverage
 - [ ] Commit messages follow the conventional format

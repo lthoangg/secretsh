@@ -1,6 +1,6 @@
 [package]
 name = "secretsh"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 description = "Secure subprocess secret injection for AI agents"
@@ -9,8 +9,8 @@ repository = "https://github.com/lthoangg/secretsh"
 homepage = "https://github.com/lthoangg/secretsh"
 documentation = "https://docs.rs/secretsh"
 readme = "README.md"
-keywords = ["security", "secrets", "vault", "subprocess", "redaction"]
-categories = ["command-line-utilities", "cryptography"]
+keywords = ["security", "secrets", "subprocess", "redaction", "ai"]
+categories = ["command-line-utilities"]
 authors = ["Hoang Le <lthoangg@users.noreply.github.com>"]
 exclude = [
     ".github/",
@@ -20,6 +20,7 @@ exclude = [
     "python/",
     "tests/",
     ".venv/",
+    ".pytest-venv/",
 ]
 
 [[bin]]
@@ -29,19 +30,13 @@ path = "src/main.rs"
 [lib]
 name = "secretsh"
 path = "src/lib.rs"
-crate-type = ["lib", "cdylib"]
-
-[features]
-default = []
-python = ["pyo3/extension-module"]
 
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }
 
-# Crypto
+# Hashing (audit logs)
 ring = "0.17"
-argon2 = "0.5"
 
 # Secret memory
 zeroize = { version = "1", features = ["derive"] }
@@ -64,14 +59,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # Platform
 libc = "0.2"
 
-# Terminal (password-style input)
-rpassword = "7"
-
 # Error handling
 thiserror = "2"
-
-# Python bindings (optional)
-pyo3 = { version = "0.25", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

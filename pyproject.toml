@@ -1,15 +1,15 @@
 [build-system]
-requires = ["maturin>=1.5,<2.0"]
-build-backend = "maturin"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "secretsh"
-version = "0.1.5"
+version = "0.2.0"
 description = "Secure subprocess secret injection for AI agents"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-keywords = ["security", "secrets", "vault", "subprocess", "ai"]
+keywords = ["security", "secrets", "subprocess", "redaction", "ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -18,9 +18,7 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Rust",
     "Topic :: Security",
-    "Topic :: Security :: Cryptography",
     "Typing :: Typed",
 ]
 
@@ -35,10 +33,8 @@ dev = [
     "pytest-cov>=7.0",
 ]
 
-[tool.maturin]
-features = ["python"]
-module-name = "secretsh._native"
-python-source = "python"
+[tool.hatch.build.targets.wheel]
+packages = ["python/secretsh"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,123 +2,97 @@
 # examples/basic_cli.sh — Basic secretsh CLI walkthrough
 #
 # Prerequisites:
-#   cargo install secretsh   (or cargo build --release)
+#   cargo build
+#   (or install with: cargo install secretsh)
 #
 # Usage:
-#   export SECRETSH_KEY="your-master-passphrase-here"
-#   bash examples/basic_cli.sh
+#   ./target/debug/secretsh --env .env run -- echo {{KEY}}
+#   bash examples/basic_cli.sh  (uses ./target/debug/secretsh if found)
 
 set -euo pipefail
 
-# ── Check prerequisites ───────────────────────────────────────────────────────
+# ── Find secretsh binary ────────────────────────────────────────────────────
 
-if ! command -v secretsh &>/dev/null; then
-    echo "secretsh not found. Install with: cargo install secretsh" >&2
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ -x "$REPO_DIR/target/debug/secretsh" ]; then
+    SECRETSH="$REPO_DIR/target/debug/secretsh"
+elif command -v secretsh &>/dev/null; then
+    SECRETSH="secretsh"
+else
+    echo "secretsh not found. Run: cargo build" >&2
     exit 1
 fi
 
-if [ -z "${SECRETSH_KEY:-}" ]; then
-    echo "Set SECRETSH_KEY first: export SECRETSH_KEY=\"your-passphrase\"" >&2
-    exit 1
-fi
+echo "Using: $SECRETSH"
 
-# Use a temp directory so we don't touch the default vault
-VAULT_DIR=$(mktemp -d)
-VAULT="$VAULT_DIR/vault.bin"
-trap 'rm -rf "$VAULT_DIR"' EXIT
+# Use a temp directory for our .env file
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "Using vault: $VAULT"
-echo
+ENV_FILE="$TMPDIR/.env"
 
-# ── 1. Initialize ─────────────────────────────────────────────────────────────
+# ── 1. Create .env file ───────────────────────────────────────────────────────
 
-echo "--- init ---"
-secretsh init --vault "$VAULT" --kdf-memory 65536
-echo
-
-# ── 2. Store secrets (via import-env) ─────────────────────────────────────────
-# Note: `secretsh set` is interactive (hidden input) and cannot be piped.
-# For scripted usage, use import-env with a .env file.
-
-echo "--- import-env ---"
-ENV_FILE="$VAULT_DIR/secrets.env"
+echo "--- create .env file ---"
 cat > "$ENV_FILE" <<'DOTENV'
 DB_PASS=hunter2
 DB_USER=admin
 API_KEY=sk-live-abc123xyz
 DOTENV
-secretsh import-env -f "$ENV_FILE" --vault "$VAULT"
-rm -f "$ENV_FILE"
+echo "Using env file: $ENV_FILE"
+cat "$ENV_FILE"
 echo
 
-# ── 3. List keys ──────────────────────────────────────────────────────────────
-
-echo "--- list ---"
-secretsh list --vault "$VAULT"
-echo
-
-# ── 4. Run commands — secrets injected and redacted ───────────────────────────
+# ── 2. Run commands — secrets injected and redacted ───────────────────────────
 
 echo "--- run (placeholder injection) ---"
-secretsh run --vault "$VAULT" --quiet -- \
+"$SECRETSH" --env "$ENV_FILE" run --quiet -- \
     "echo {{DB_USER}}:{{DB_PASS}}"
 # Output: [REDACTED_DB_USER]:[REDACTED_DB_PASS]
 echo
 
+echo "--- run (multiple secrets) ---"
+# curl will fail because api.example.com doesn't exist — that's expected here
+"$SECRETSH" --env "$ENV_FILE" run --quiet -- \
+    "curl -u {{DB_USER}}:{{DB_PASS}} https://api.example.com" || true
+echo
+
 echo "--- run (incidental secret in output is redacted) ---"
-secretsh run --vault "$VAULT" --quiet -- \
+"$SECRETSH" --env "$ENV_FILE" run --quiet -- \
     "echo 'the password is hunter2'"
 # Output: the password is [REDACTED_DB_PASS]
 # NOTE: redaction is substring matching — if your secret is a common string
 # like "123456", every occurrence in child output will be redacted, including
-# unrelated content (port numbers, counts, log lines). This is a known
-# limitation with no fix in the current model.
+# unrelated content. This is a known limitation.
 echo
 
-# ── 5. --no-shell (AI-agent hardening) ───────────────────────────────────────
+# ── 3. --no-shell (AI-agent hardening) ─────────────────────────────────────
 # Blocks sh, bash, zsh, dash, fish, ksh, mksh, tcsh, csh as argv[0].
 # Recommended whenever secretsh is invoked by an AI agent.
 
 echo "--- --no-shell: non-shell binary allowed ---"
-secretsh run --vault "$VAULT" --quiet --no-shell -- \
+"$SECRETSH" --env "$ENV_FILE" run --quiet --no-shell -- \
     "echo {{DB_USER}}"
 # Output: [REDACTED_DB_USER]
 echo
 
 echo "--- --no-shell: shell interpreter blocked (exit 125) ---"
-secretsh run --vault "$VAULT" --no-shell -- sh -c "echo hello" 2>&1 || true
+"$SECRETSH" --env "$ENV_FILE" run --no-shell -- sh -c "echo hello" 2>&1 || true
 # Output: secretsh error: spawn error: shell delegation blocked: "sh" ...
 echo
 
-# ── 6. Export & import ────────────────────────────────────────────────────────
-
-echo "--- export ---"
-BACKUP="$VAULT_DIR/backup.vault.bin"
-secretsh export --vault "$VAULT" --out "$BACKUP"
-echo
-
-echo "--- delete a key ---"
-secretsh delete API_KEY --vault "$VAULT"
-echo "Keys after delete:"
-secretsh list --vault "$VAULT"
-echo
-
-echo "--- import (restores deleted key) ---"
-secretsh import --vault "$VAULT" --in "$BACKUP"
-echo "Keys after import:"
-secretsh list --vault "$VAULT"
-echo
-
-# ── 7. Exit codes ─────────────────────────────────────────────────────────────
+# ── 4. Exit codes ─────────────────────────────────────────────────────────────
 
 echo "--- exit codes ---"
-secretsh run --vault "$VAULT" --quiet -- "true"
+"$SECRETSH" --env "$ENV_FILE" run --quiet -- "true"
 echo "true  -> exit $?"
 
-secretsh run --vault "$VAULT" --quiet -- "false" || true
+"$SECRETSH" --env "$ENV_FILE" run --quiet -- "false" || true
 echo "false -> exit 1 (expected)"
 
-secretsh run --vault "$VAULT" --quiet -- "nonexistent_cmd_xyz" 2>/dev/null || true
+"$SECRETSH" --env "$ENV_FILE" run --quiet -- "nonexistent_cmd_xyz" 2>/dev/null || true
 echo "not found -> exit 127 (expected)"
 echo
 

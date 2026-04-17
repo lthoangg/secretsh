@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "secretsh"
+version = "0.1.5"
+description = "Inject secrets from a .env file into subprocess arguments for AI agents"
+readme = "../README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [
+    { name = "Hoang Le", email = "lthoangg@users.noreply.github.com" },
+]
+keywords = ["security", "secrets", "subprocess", "redaction", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+langchain = [
+    "langchain>=0.1.0",
+    "langchain-openai>=0.0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/lthoangg/secretsh"
+Documentation = "https://docs.rs/secretsh"
+Repository = "https://github.com/lthoangg/secretsh"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "error",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["secretsh"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/secretsh",
+    "/README.md",
+    "/LICENSE",
+]
